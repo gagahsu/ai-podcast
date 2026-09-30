@@ -1,0 +1,5 @@
+google-genai>=2.0.0
+# Optional: fall back to speech recognition when silence-based splitting fails
+faster-whisper>=1.0
+opencc-python-reimplemented
+numpy

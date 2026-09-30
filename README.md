@@ -1,0 +1,110 @@
+# 為什麼森林（暫定名）
+
+華語兒童睡前故事 podcast 的製作工具：把一集的腳本（Markdown）交給 Gemini TTS 配音，自動組成一集可以上架的 mp3。
+
+- **節目定位**：3–6 歲、在床上聽的助眠型故事。固定角色＋每集一個「為什麼」的科學小問題，語速越講越慢，最後收進睡眠。
+- **角色**：旁白（媽媽）、栗栗（好奇的小松鼠）、棉棉（慢吞吞的小兔子）、咕咕爺爺（貓頭鷹）
+- **AI 揭露**：每集開場都用口頭說明聲音由 AI 配音，節目說明也要寫。Apple Podcasts 規定大部分音訊由 AI 生成時必須揭露。
+
+## 快速開始
+
+需要 Python 3.10 以上和 [ffmpeg](https://ffmpeg.org/)（用來輸出 mp3、統一音量、混背景音樂）。
+
+```powershell
+pip install -r requirements.txt
+
+# 設定 Gemini API 金鑰（PowerShell；macOS / Linux 用 export GEMINI_API_KEY=...）
+$env:GEMINI_API_KEY="你的金鑰"
+
+py generate_episode.py episodes/ep01_moon.md --dry-run   # 檢查腳本，不花額度
+py generate_episode.py episodes/ep01_moon.md --limit 5   # 先生成前 5 句試聽
+py generate_episode.py episodes/ep01_moon.md             # 生成整集
+```
+
+輸出在 `build/`：`ep01_moon.wav`（原始）和 `ep01_moon.mp3`（響度 -16 LUFS，可直接上架）。
+
+## 腳本格式
+
+```markdown
+@旁白 {warm, slow} 在森林的邊邊，有一棵好大好大的橡樹。
+[停頓 2秒]
+@咕咕爺爺 {kind, chuckling} <chuckle> 這是一個很好的問題。
+```
+
+- `@角色 {style} 台詞`：一句語音。角色必須在 `generate_episode.py` 的 `CHARACTERS` 裡。
+- `{style}` 寫這一句的語氣，用**簡短英文**（官方建議；寫太長聲音反而容易飄）。它會跟角色的基本風格合併後送出，**不會被念出來**。
+- 台詞裡可以放官方的聲音標記：`<short pause>`、`<long pause>`、`<breath>`、`<exhales>`、`<sigh>`、`<chuckle>`、`<laugh>`、`<yawn>`、`<whispering>` 等。
+- `[停頓 N秒]`：程式插入精準長度的靜音，不會送給 TTS。
+- 其他行（標題、角色表、製作備註）都會略過。
+
+範例見 `episodes/ep01_moon.md`。
+
+## 常用選項
+
+| 選項 | 用途 |
+|---|---|
+| `--dry-run` | 只解析腳本、估算長度，不呼叫 API |
+| `--limit N` | 只生成前 N 句（試聽用） |
+| `--bgm 檔案` | 混入背景音樂（自動循環、結尾淡出） |
+| `--inspect` | 分析 `build/segments/` 裡已生成的批次音檔有哪些停頓（不呼叫 API） |
+| `--fallback` | 分批切不開的角色，改成一句一次重新生成（會多用額度） |
+| `--per-line` | 一開始就一句一次生成（語氣最準，請求次數最多） |
+| `--rpm N` | 每分鐘最多呼叫幾次（免費方案 3；付費方案可調高） |
+
+環境變數：
+
+| 變數 | 預設 | 說明 |
+|---|---|---|
+| `GEMINI_API_KEY` | （必填） | Gemini API 金鑰 |
+| `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | 也可用 `gemini-3.8-flash-lite-tts`。**同一個節目請固定用同一個模型**，不同模型的同名聲音聽起來會不一樣 |
+| `WHISPER_MODEL` | `small` | faster-whisper 模型 |
+| `WHISPER_DEVICE` | `cpu` | 有裝好 CUDA 函式庫可設成 `cuda` |
+
+## 運作方式
+
+### 分批模式（預設）
+
+免費方案每個模型**每天只能呼叫 10 次**，一集卻有 47 句，所以預設把**每個角色的所有台詞一次送出**（一集 4 次請求），再切回一句一句：
+
+1. 每句台詞各自帶 `style`，句子之間插入 `<long pause>`。
+2. **靜音偵測**：找出最長的 N−1 段停頓。只有在句間停頓明顯比句中停頓（逗號）長 30% 以上時才下刀；分不清就不切。
+3. **語音辨識對齊**：靜音切不開時，用 faster-whisper 把音檔轉成逐字時間戳，拿腳本台詞跟辨識結果逐字對齊（繁簡先統一），找出每句最後一個字和下一句第一個字的時間，再在兩者之間的停頓下刀。切完會檢查每段的辨識內容跟台詞對不對得上，差太多就判定失敗。
+4. **還是不行就停下來**：印出原因，已生成的音檔都保留。要改成逐句生成切不開的角色，加 `--fallback` 再跑。
+
+切好的句子依腳本順序排回去，`[停頓 N秒]` 由程式精準插入。
+
+### 快取與額度
+
+- 每次生成的結果都存在 `build/segments/`，檔名由「模型＋聲音＋送出內容」決定。改了某句、換聲音或換模型，才會重新生成；中斷後再跑同一個指令會從中斷處繼續。
+- 分批模式下，改了某角色的任何一句，那個角色整批都會重新生成。
+- 超過每分鐘上限時，程式會照伺服器建議的秒數等待再重試；每日額度用完會停下，隔天再跑即可。免費額度在美西時間午夜重置（約台灣下午 3 點）。
+- 生成的音檔如果比台詞應有的長度長很多（通常是模型把設定也念出來了），程式會直接停下，避免浪費額度。
+
+## 已知限制與踩過的坑
+
+- **Gemini 3.8 TTS 會把送進去的文字全部念出來。** 角色設定、語氣、停頓指示都不能寫在台詞裡，要放在 `speech_metadata.style`。
+- **AI Studio playground 的「Get code」會漏掉 Style 設定。** 照匯出的程式碼跑，會得到沒有套用 style 的聲音。
+- **一次請求最多 2 個說話者**，所以沒辦法一次生成整集四個角色的對話。
+- **`<long pause>` 的長度不固定**：3.8 Flash 實測約 3 秒，Lite 大約 1–2.5 秒；語氣設成很慢時，逗號也會停很久，所以只靠靜音常常切不開。
+- **口音由聲音決定**，沒有設定口音的欄位。內建聲音念中文可能偏中國口音，要台灣口音請在 AI Studio 的聲音清單找 zh-TW 的聲音。
+- **SDK 需要 google-genai 2.0 以上**（Interactions API），舊版會回 400。
+- 免費方案每天 10 次請求，固定週更的話建議改用付費方案，然後加上 `--per-line`。
+
+## 測試
+
+測試不連網、不花額度：用 `tests/fake/` 裡的假 SDK 和合成音訊。
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+## 專案結構
+
+```
+generate_episode.py   # 主程式：解析腳本 → TTS → 切句 → 組裝 → 輸出 mp3
+episodes/             # 每集腳本（Markdown）
+tests/
+  test_pipeline.py    # 離線測試
+  fake/google/genai/  # 假的 google-genai SDK
+build/                # 輸出與快取（不進版控）
+```

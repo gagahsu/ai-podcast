@@ -1,0 +1,16 @@
+# 生成的音檔與快取
+build/
+*.wav
+*.mp3
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 金鑰
+.env
+
+# 另一個專案
+finreels/
