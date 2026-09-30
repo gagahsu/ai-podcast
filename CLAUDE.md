@@ -54,6 +54,6 @@ PYTHONPATH=tests/fake python generate_episode.py episodes/ep01_moon.md --rpm 600
 
 ## 待辦／未驗證
 
-- Whisper 對齊切句只用合成資料測過，還沒用真的 Gemini 音檔驗證。
+- Whisper 對齊切句已用 ep01 的真音檔驗證（旁白 23 句、咕咕爺爺 12 句都切開），但只有這一集。切句後的內容檢查容許差 2 個字，所以「句首或句尾只少一個字」抓不到（曾發生：句首的「咕」被當雜訊吃掉，是靠人耳聽出來的）。新的一集生成後，要特別聽每個角色的句首。
 - 還沒選定台灣口音的聲音；目前旁白是 Sulafat（使用者在 playground 也試過 Tova）。
 - 還沒決定要用 3.8 Flash 還是 Lite。
