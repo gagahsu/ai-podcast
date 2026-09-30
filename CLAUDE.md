@@ -12,6 +12,8 @@
 
 ## 常用指令
 
+**執行任何 Python 前一律先設 UTF-8，否則程式的中文輸出會變亂碼**（Windows 預設 cp950）：PowerShell 用 `$env:PYTHONUTF8="1"`；Bash 工具用 `export PYTHONUTF8=1`（或指令前加 `PYTHONUTF8=1`）。
+
 ```bash
 python -m unittest discover -s tests -v                            # 離線測試（必跑）
 python generate_episode.py episodes/ep01_moon.md --dry-run         # 解析腳本
@@ -38,6 +40,7 @@ PYTHONPATH=tests/fake python generate_episode.py episodes/ep01_moon.md --rpm 600
 - 切句：
   1. `split_on_silence`：嚴格靜音切割。`_silent_runs` 會把中間只夾著短雜音（< `BLIP_SEC`）的兩段靜音合併。
   2. `split_with_whisper`：faster-whisper 逐字時間戳 → `align_cuts` 與腳本逐字對齊（`_to_simplified` 先統一繁簡）→ 在交界字之間的靜音下刀 → 逐段檢查辨識內容與台詞的差異字數。
+     **不要給 Whisper `initial_prompt`（台詞當提示）**：它會把提示續寫出來而不是聽音檔，開頭變亂碼。咕咕爺爺 12 句實測：有提示 1/4 對齊成功，沒提示 3/3，而且快 4 倍。換 medium 模型、開 VAD、關 `condition_on_previous_text` 都沒用。
   3. 都失敗 → 停下。
 - `inspect_batches`：`--inspect`，列出批次音檔的靜音長度，除錯用，不呼叫 API。
 

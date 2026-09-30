@@ -16,6 +16,9 @@ pip install -r requirements.txt
 # 設定 Gemini API 金鑰（PowerShell；macOS / Linux 用 export GEMINI_API_KEY=...）
 $env:GEMINI_API_KEY="你的金鑰"
 
+# 讓 Python 用 UTF-8 輸出，否則 Windows 上中文訊息會變亂碼
+$env:PYTHONUTF8="1"
+
 py generate_episode.py episodes/ep01_moon.md --dry-run   # 檢查腳本，不花額度
 py generate_episode.py episodes/ep01_moon.md --limit 5   # 先生成前 5 句試聽
 py generate_episode.py episodes/ep01_moon.md             # 生成整集

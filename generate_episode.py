@@ -22,9 +22,15 @@ import sys
 import time
 import wave
 from array import array
+from functools import lru_cache
 from pathlib import Path
 
 warnings.filterwarnings("ignore", message="Interactions usage is experimental")
+
+# Windows 的預設編碼（cp950）會讓中文訊息變亂碼，強制改用 UTF-8
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
 
 # ---- 設定 ----------------------------------------------------------------
 
@@ -52,6 +58,8 @@ MIN_GAP_SEC = 0.3     # 句間停頓至少要這麼長才算
 EDGE_PAD_SEC = 0.05   # 切下來的每句前後保留一點點空白
 GAP_MARGIN = 1.3      # 句間停頓至少要比句中最長的停頓長 30%，才敢下刀
 BLIP_SEC = 0.15       # 兩段靜音之間的聲音短於這個長度（換氣、雜訊），視為同一段停頓
+BLIP_PEAK = 2600      # …而且要夠輕（約 -22 dBFS）。實測雜訊峰值 2–6%，短音節（咕、嗯）都 13% 以上
+                      # 沒有這個條件，句首的「咕」（約 0.15 秒）會被當雜訊吃掉，切出來少一個字
 
 # 睡前慢速朗讀大約每秒 3 個字；生成的音訊如果長得離譜，通常是模型把說明也念出來了
 CHARS_PER_SEC = 3.0
@@ -228,9 +236,11 @@ def _silent_runs(audio):
             runs.append((start * frame, i * frame))
             start = None
     # 停頓中間偶爾會有一小聲（換氣、雜訊），會把一段長停頓切成兩段，這裡把它們接回去
+    # 只接「又短又輕」的；短但響的是真的音節，不能吃掉
     merged = []
     for r in runs:
-        if merged and r[0] - merged[-1][1] <= BLIP_SEC * audio.rate:
+        if merged and r[0] - merged[-1][1] <= BLIP_SEC * audio.rate \
+                and max(map(abs, samples[merged[-1][1]:r[0]])) < BLIP_PEAK:
             merged[-1] = (merged[-1][0], r[1])
         else:
             merged.append(r)
@@ -303,6 +313,23 @@ def _to_simplified(text):
 _opencc = None
 
 
+@lru_cache(maxsize=None)
+def _sound(ch):
+    """一個字的拼音（含聲調），用來忽略同音字的差異。沒裝 pypinyin 或不是中文就回傳原字。
+    逐字轉換（不看上下文），兩邊同一個字一定得到同一個音，所以多音字不會造成誤報。"""
+    try:
+        from pypinyin import pinyin, Style
+    except ImportError:
+        return ch
+    return pinyin(ch, style=Style.TONE3, errors=lambda x: [x])[0][0]
+
+
+def _sounds(text):
+    """把文字轉成「每字一個拼音」的清單，長度不變；台詞和辨識結果改比這個，
+    Whisper 把「栗栗」聽成「莉莉」這類同音字就不會被當成錯字。"""
+    return [_sound(c) for c in _to_simplified(text)]
+
+
 def _load_whisper():
     global _whisper
     if _whisper is None:
@@ -313,8 +340,11 @@ def _load_whisper():
     return _whisper
 
 
-def transcribe_chars(audio, prompt):
-    """回傳 [(字, 開始秒, 結束秒), ...]，每個中文字一筆。"""
+def transcribe_chars(audio):
+    """回傳 [(字, 開始秒, 結束秒), ...]，每個中文字一筆。
+
+    不要給 initial_prompt：給了台詞當提示，Whisper 會把提示「續寫」出來而不是聽音檔，
+    開頭就變亂碼（咕咕爺爺 12 句實測：有提示 1/4 對齊成功，沒提示 3/3，而且快 4 倍）。"""
     import numpy as np
     model = _load_whisper()
     samples = np.frombuffer(audio.pcm, dtype="<i2").astype("float32") / 32768
@@ -322,7 +352,7 @@ def transcribe_chars(audio, prompt):
         idx = np.arange(0, len(samples), audio.rate / 16000)
         samples = np.interp(idx, np.arange(len(samples)), samples).astype("float32")
     segments, _ = model.transcribe(samples, language="zh", word_timestamps=True,
-                                   initial_prompt=prompt[:200], vad_filter=False,
+                                   vad_filter=False,
                                    condition_on_previous_text=True)
     chars = []
     for seg in segments:
@@ -341,9 +371,9 @@ def align_cuts(texts, chars):
     對不上的地方（辨識錯字、簡體字）會跳過，只用對得上的字定位；
     句子邊界附近如果完全對不上，回傳 (None, 原因)。"""
     from difflib import SequenceMatcher
-    lines = [_to_simplified(_norm(t)) for t in texts]
-    exp = "".join(lines)
-    asr = _to_simplified("".join(c for c, _, _ in chars))  # 逐字轉換，長度不變
+    lines = [_norm(t) for t in texts]
+    exp = _sounds("".join(lines))
+    asr = _sounds("".join(c for c, _, _ in chars))  # 逐字轉換，長度不變
     sm = SequenceMatcher(None, exp, asr, autojunk=False)
     mapping = {}
     for a, b, size in sm.get_matching_blocks():
@@ -374,7 +404,7 @@ def align_cuts(texts, chars):
 def split_with_whisper(audio, texts):
     """用語音辨識找每句的交界，再在交界附近最長的靜音處下刀。"""
     try:
-        chars = transcribe_chars(audio, "".join(texts))
+        chars = transcribe_chars(audio)
     except ImportError:
         return None, "沒有安裝 faster-whisper（pip install faster-whisper）"
     except Exception as e:  # 模型下載失敗、CUDA 函式庫缺少等
@@ -415,13 +445,13 @@ def split_with_whisper(audio, texts):
             return None, f"第 {i // 2 + 1} 句切出來是空的"
         # 檢查：切出來這段裡辨識到的字，要跟這句台詞幾乎一樣（多一截、少一截都會被抓到）
         from difflib import SequenceMatcher
-        heard = _to_simplified("".join(c for c, st, en in chars if a / rate <= (st + en) / 2 <= b / rate))
-        want = _to_simplified(_norm(texts[i // 2]))
+        heard_text = "".join(c for c, st, en in chars if a / rate <= (st + en) / 2 <= b / rate)
+        heard, want = _sounds(heard_text), _sounds(_norm(texts[i // 2]))
         same = sum(m.size for m in SequenceMatcher(None, want, heard, autojunk=False).get_matching_blocks())
         diff = max(len(want), len(heard)) - same   # 對不上的字數（錯字算一個）
         if diff > 2 + MAX_DIFF_RATIO * len(want):
             return None, (f"第 {i // 2 + 1} 句切出來的內容跟台詞差了 {diff} 個字"
-                          f"（聽到「{heard[:24]}」）")
+                          f"（聽到「{heard_text[:24]}」）")
         pieces.append(Audio(audio.pcm[a * 2:b * 2], rate))
     return pieces, None
 

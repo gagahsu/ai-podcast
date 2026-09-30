@@ -27,6 +27,12 @@ def tone(sec):
     return (_T * (n // 480 + 1))[: n * 2]
 
 
+def quiet(sec):
+    """很輕的雜訊（峰值約 5%），像換氣。"""
+    n = int(R * sec)
+    return array("h", [1600 if (k // 40) % 2 else -1600 for k in range(n)]).tobytes()
+
+
 def sil(sec):
     return b"\0\0" * int(R * sec)
 
@@ -47,7 +53,7 @@ def run(*args, mode="good"):
 class TestScript(unittest.TestCase):
     def test_parse(self):
         lines = [i for i in g.parse_script(EPISODE) if i[0] == "line"]
-        self.assertEqual(len(lines), 47)
+        self.assertEqual(len(lines), 46)
         self.assertEqual({l[1] for l in lines}, set(g.CHARACTERS))
 
     def test_directions_are_short_english(self):
@@ -110,9 +116,43 @@ class TestSilenceSplit(unittest.TestCase):
             self.assertIsNone(pieces)
 
     def test_blip_inside_pause_is_merged(self):
-        pcm = tone(2) + sil(1.4) + tone(0.04) + sil(1.4) + tone(2)
+        pcm = tone(2) + sil(1.4) + quiet(0.04) + sil(1.4) + tone(2)   # 輕輕的雜訊
         pieces, why = g.split_on_silence(g.Audio(pcm, R), ["一二三四五六", "七八九十一二"])
         self.assertIsNotNone(pieces, why)
+
+    def test_loud_short_syllable_is_not_swallowed(self):
+        # 句首的短音節（例如「咕咕」的第一個咕，約 0.15 秒、很響）不能被當雜訊併進前面的停頓
+        pcm = tone(2) + sil(1.4) + tone(0.15) + sil(0.06) + tone(2)
+        runs, _, _ = g._silent_runs(g.Audio(pcm, R))
+        self.assertEqual(len(runs), 2)
+
+
+class TestWhisperCheck(unittest.TestCase):
+    """用假的辨識結果測 split_with_whisper：同音字要容忍，內容真的不同還是要被擋下。"""
+
+    TEXTS = ["晚安，栗栗。", "你們先看看路邊這朵小白花"]
+
+    def split(self, heard1, heard2):
+        pcm = tone(2) + sil(1.0) + tone(3)   # 第 1 句 0–2 秒，第 2 句 3–6 秒
+        chars = []
+        for heard, t0, t1 in ((heard1, 0.0, 2.0), (heard2, 3.0, 6.0)):
+            step = (t1 - t0) / len(heard)
+            chars += [(c, t0 + i * step, t0 + (i + 1) * step) for i, c in enumerate(heard)]
+        old, g.transcribe_chars = g.transcribe_chars, lambda audio: chars
+        try:
+            return g.split_with_whisper(g.Audio(pcm, R), self.TEXTS)
+        finally:
+            g.transcribe_chars = old
+
+    def test_homophones_are_tolerated(self):
+        self.assertEqual(g._sounds("栗栗"), g._sounds("莉莉"))
+        pieces, why = self.split("晚安莉莉", "你们先看看路边这朵小白花")   # 同音字＋簡體
+        self.assertIsNotNone(pieces, why)
+
+    def test_different_content_is_still_rejected(self):
+        self.assertNotEqual(g._sounds("栗栗"), g._sounds("棉棉"))
+        pieces, _ = self.split("月亮離我們非常遠", "你們先看看路邊這朵小白花")
+        self.assertIsNone(pieces)
 
 
 if __name__ == "__main__":
