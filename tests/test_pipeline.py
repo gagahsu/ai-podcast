@@ -37,11 +37,13 @@ def sil(sec):
     return b"\0\0" * int(R * sec)
 
 
-def run(*args, mode="good"):
-    """在暫存資料夾裡用假 SDK 執行主程式，回傳 (exit code, 輸出)。"""
+def run(*args, mode="good", free="fake-free", paid=""):
+    """在暫存資料夾裡用假 SDK 執行主程式，回傳 (exit code, 輸出)。
+    金鑰明確傳入，蓋過使用者 .env 裡的真金鑰（環境變數優先於 .env）。"""
     tmp = tempfile.mkdtemp()
     try:
-        env = dict(os.environ, PYTHONPATH=str(FAKE), FAKE_MODE=mode, PYTHONIOENCODING="utf-8")
+        env = dict(os.environ, PYTHONPATH=str(FAKE), FAKE_MODE=mode, PYTHONIOENCODING="utf-8",
+                   GEMINI_API_KEY=free, GEMINI_API_KEY_PAID=paid)
         p = subprocess.run([sys.executable, str(ROOT / "generate_episode.py"), str(EPISODE),
                             "--rpm", "6000", *args], cwd=tmp, env=env,
                            capture_output=True, text=True, encoding="utf-8")
@@ -78,6 +80,45 @@ class TestPipeline(unittest.TestCase):
         code, out = run("--limit", "5", mode="long")
         self.assertNotEqual(code, 0)
         self.assertIn("遠超過預期", out)
+
+
+class TestApiKeys(unittest.TestCase):
+    def test_switches_to_paid_key_when_free_quota_used_up(self):
+        code, out = run("--limit", "5", mode="quota", paid="fake-paid")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out.count("額度用完了，改用付費 key"), 1, out)
+
+    def test_stops_without_paid_key(self):
+        code, out = run("--limit", "5", mode="quota")
+        self.assertNotEqual(code, 0)
+        self.assertIn("免費 key今天在這個模型的額度已用完", out)
+
+    def test_no_paid_flag_keeps_free_only(self):
+        code, out = run("--limit", "5", "--no-paid", mode="quota", paid="fake-paid")
+        self.assertNotEqual(code, 0)
+        self.assertIn("金鑰：只用免費 key", out)
+        self.assertNotIn("額度用完了，改用付費 key", out)
+
+    def test_missing_keys(self):
+        code, out = run("--limit", "5", free="")
+        self.assertNotEqual(code, 0)
+        self.assertIn("找不到 API 金鑰", out)
+
+    def test_load_env(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            (tmp / ".env").write_text(
+                "# 註解\nT_ENV_A=abc  # 行尾註解\nT_ENV_B=\"x # y\"\nT_ENV_C=from-file\n",
+                encoding="utf-8")
+            os.environ["T_ENV_C"] = "from-shell"
+            g.load_env(tmp / ".env")
+            self.assertEqual(os.environ["T_ENV_A"], "abc")
+            self.assertEqual(os.environ["T_ENV_B"], "x # y")
+            self.assertEqual(os.environ["T_ENV_C"], "from-shell")   # 已設的不覆蓋
+        finally:
+            for k in ("T_ENV_A", "T_ENV_B", "T_ENV_C"):
+                os.environ.pop(k, None)
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class TestSilenceSplit(unittest.TestCase):

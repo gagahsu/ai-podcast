@@ -34,7 +34,25 @@ for _stream in (sys.stdout, sys.stderr):
 
 # ---- 設定 ----------------------------------------------------------------
 
-MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts")
+def load_env(path):
+    """讀 KEY=VALUE 格式的 .env；已經在環境變數裡的不覆蓋（PowerShell 設的優先）。"""
+    if not path.exists():
+        return
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = (s.strip() for s in line.split("=", 1))
+        if value[:1] in "\"'" and value[-1:] == value[:1] and len(value) > 1:
+            value = value[1:-1]
+        else:
+            value = value.split(" #", 1)[0].strip()  # 允許行尾註解
+        os.environ.setdefault(key, value)
+
+
+load_env(Path(__file__).resolve().parent / ".env")
+
+MODEL =os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts")
 
 # 角色 → (聲音, 基本風格)。基本風格會跟每句的導演提示合併成 style 欄位，不會被念出來。
 # 官方建議 style 用簡短英文；寫太長（例如一整段角色設定）反而容易讓聲音飄掉。
@@ -137,6 +155,26 @@ def expected_seconds(texts):
 _last_call = 0.0
 
 
+class Gemini:
+    """先用免費 key；免費的每日額度用完，有設付費 key 就換過去繼續。"""
+
+    def __init__(self, genai, free_key, paid_key):
+        self._genai, self._paid_key = genai, paid_key
+        self.on_paid = not free_key
+        self.client = genai.Client(api_key=free_key or paid_key)
+
+    @property
+    def interactions(self):
+        return self.client.interactions
+
+    def switch_to_paid(self):
+        if self.on_paid or not self._paid_key:
+            return False
+        self.client = self._genai.Client(api_key=self._paid_key)
+        self.on_paid = True
+        return True
+
+
 def _call_api(client, contents, voice, min_interval):
     """contents: [(台詞, style), ...]。依每分鐘上限排隊，遇到 429 依建議秒數等待後重試。"""
     global _last_call
@@ -167,8 +205,12 @@ def _call_api(client, contents, voice, min_interval):
                 raise
             msg = str(e)
             if "PerDay" in msg:
+                if client.switch_to_paid():
+                    print("    免費 key 今天的額度用完了，改用付費 key（GEMINI_API_KEY_PAID）繼續")
+                    continue
+                which = "付費 key" if client.on_paid else "免費 key"
                 sys.exit(
-                    "\n今天這個模型的免費額度已用完。已生成的部分都快取在 build/segments/，"
+                    f"\n{which}今天在這個模型的額度已用完。已生成的部分都快取在 build/segments/，"
                     "明天再跑同一個指令就會從中斷處繼續。"
                 )
             m = re.search(r"retry in ([\d.]+)s", msg)
@@ -532,6 +574,8 @@ def main():
                     help="分批切不開的角色，自動改用逐句模式生成（會用掉較多額度）")
     ap.add_argument("--per-line", action="store_true",
                     help="一句一次請求（語氣控制最精準，但請求次數多，適合付費方案）")
+    ap.add_argument("--no-paid", action="store_true",
+                    help="不使用付費 key；免費額度用完就停下")
     args = ap.parse_args()
 
     if args.inspect:
@@ -557,7 +601,15 @@ def main():
     OFFLINE = args.offline
     from google import genai
 
-    client = genai.Client() if not OFFLINE else None
+    client = None
+    if not OFFLINE:
+        free_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        paid_key = "" if args.no_paid else os.environ.get("GEMINI_API_KEY_PAID", "").strip()
+        if not free_key and not paid_key:
+            sys.exit("找不到 API 金鑰：請在 .env 設定 GEMINI_API_KEY（範例見 .env.example）")
+        client = Gemini(genai, free_key, paid_key)
+        print("金鑰：" + ("只有付費 key" if not free_key else
+                         "免費 key，用完改用付費 key" if paid_key else "只用免費 key"))
     import google.genai as _g
     major = int(re.match(r"\d+", getattr(_g, "__version__", "0")).group())
     if not OFFLINE and (major < 2 or not hasattr(client, "interactions")):

@@ -13,8 +13,8 @@
 ```powershell
 pip install -r requirements.txt
 
-# 設定 Gemini API 金鑰（PowerShell；macOS / Linux 用 export GEMINI_API_KEY=...）
-$env:GEMINI_API_KEY="你的金鑰"
+# 設定 Gemini API 金鑰：複製範例檔，再用編輯器填入 GEMINI_API_KEY（.env 不會進版控）
+Copy-Item .env.example .env
 
 # 讓 Python 用 UTF-8 輸出，否則 Windows 上中文訊息會變亂碼
 $env:PYTHONUTF8="1"
@@ -53,12 +53,14 @@ py generate_episode.py episodes/ep01_moon.md             # 生成整集
 | `--fallback` | 分批切不開的角色，改成一句一次重新生成（會多用額度） |
 | `--per-line` | 一開始就一句一次生成（語氣最準，請求次數最多） |
 | `--rpm N` | 每分鐘最多呼叫幾次（免費方案 3；付費方案可調高） |
+| `--no-paid` | 不使用付費 key，免費額度用完就停 |
 
-環境變數：
+設定（寫在 `.env`，或用 PowerShell 的 `$env:X="..."` 設定；兩邊都有時以 `$env:` 為準）：
 
 | 變數 | 預設 | 說明 |
 |---|---|---|
-| `GEMINI_API_KEY` | （必填） | Gemini API 金鑰 |
+| `GEMINI_API_KEY` | （必填） | 免費方案的 Gemini API 金鑰 |
+| `GEMINI_API_KEY_PAID` | （選填） | 付費方案的金鑰。免費 key 當天的額度用完時，自動改用這把繼續 |
 | `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | 也可用 `gemini-3.8-flash-lite-tts`。**同一個節目請固定用同一個模型**，不同模型的同名聲音聽起來會不一樣 |
 | `WHISPER_MODEL` | `small` | faster-whisper 模型 |
 | `WHISPER_DEVICE` | `cpu` | 有裝好 CUDA 函式庫可設成 `cuda` |
@@ -80,7 +82,7 @@ py generate_episode.py episodes/ep01_moon.md             # 生成整集
 
 - 每次生成的結果都存在 `build/segments/`，檔名由「模型＋聲音＋送出內容」決定。改了某句、換聲音或換模型，才會重新生成；中斷後再跑同一個指令會從中斷處繼續。
 - 分批模式下，改了某角色的任何一句，那個角色整批都會重新生成。
-- 超過每分鐘上限時，程式會照伺服器建議的秒數等待再重試；每日額度用完會停下，隔天再跑即可。免費額度在美西時間午夜重置（約台灣下午 3 點）。
+- 超過每分鐘上限時，程式會照伺服器建議的秒數等待再重試；每日額度用完時，有設 `GEMINI_API_KEY_PAID` 就改用付費 key 繼續，沒設就停下，隔天再跑即可。換 key 不影響快取。免費額度在美西時間午夜重置（約台灣下午 3 點）。
 - 生成的音檔如果比台詞應有的長度長很多（通常是模型把設定也念出來了），程式會直接停下，避免浪費額度。
 
 ## 已知限制與踩過的坑

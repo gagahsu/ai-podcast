@@ -4,6 +4,7 @@ FAKE_MODE 環境變數：
   good  每句之間停頓 0.8~1.5 秒（比句中停頓長，靜音就切得開）
   wav   同 good，但回傳帶 WAV 檔頭的音訊
   long  音訊長度是正常的 4 倍（模擬模型把設定也念出來）
+  quota 金鑰含 "free" 的一律回 429 每日額度用完，其他金鑰同 good
 """
 import base64
 import io
@@ -36,9 +37,14 @@ def _sil(sec):
 
 
 class _Interactions:
+    def __init__(self, api_key):
+        self.api_key = api_key or ""
+
     def create(self, model, input, response_format, generation_config):
         calls["n"] += 1
         mode = os.environ.get("FAKE_MODE", "good")
+        if mode == "quota" and "free" in self.api_key:
+            raise errors.ClientError(429, "Quota exceeded for GenerateRequestsPerDayPerProjectPerModel-FreeTier")
         parts = input[0]["content"]
         assert all(p["annotations"][0]["type"] == "speech_metadata" for p in parts)
         out = _sil(0.3)
@@ -62,5 +68,5 @@ class _Interactions:
 
 
 class Client:
-    def __init__(self, *a, **kw):
-        self.interactions = _Interactions()
+    def __init__(self, *a, api_key=None, **kw):
+        self.interactions = _Interactions(api_key)

@@ -34,7 +34,7 @@ PYTHONPATH=tests/fake python generate_episode.py episodes/ep01_moon.md --rpm 600
 
 - `parse_script`：解析 `@角色 {style} 台詞` 和 `[停頓 N秒]`。
 - `CHARACTERS`：角色 → (聲音, 基本風格英文)。`style_for` 把基本風格和每句的導演提示合併。
-- `_call_api`：Interactions API（`client.interactions.create`），每段台詞帶 `annotations=[{"type": "speech_metadata", "style": ...}]`。依 `--rpm` 排隊；429 依伺服器建議秒數重試；每日額度用完就結束。錯誤類別不固定，用 `status_code` / `code` 判斷。
+- `_call_api`：Interactions API（`client.interactions.create`），每段台詞帶 `annotations=[{"type": "speech_metadata", "style": ...}]`。依 `--rpm` 排隊；429 依伺服器建議秒數重試；每日額度用完時，`Gemini` 包裝類別會從免費 key 換成 `GEMINI_API_KEY_PAID`（沒設或加 `--no-paid` 就結束）。金鑰從 `.env` 讀（`load_env`，已設的環境變數優先）。**不要做多帳號輪替 key**：用多個帳號繞過免費額度違反 Gemini API 條款，使用者已確認不做。錯誤類別不固定，用 `status_code` / `code` 判斷。
 - `Audio`：16-bit 單聲道 PCM ＋ 取樣率。API 可能回 raw PCM 或 WAV，`from_api` 兩種都處理；快取存成 WAV。
 - 快取鍵：`sha1(模型|聲音|送出內容)`。**改動送出內容的格式（分隔標記、style 組法）會讓所有快取失效**，使用者就得重新花額度，改之前要想清楚並告知使用者。
 - 切句：
