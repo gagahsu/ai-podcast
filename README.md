@@ -20,13 +20,23 @@ Copy-Item .env.example .env
 $env:PYTHONUTF8="1"
 
 py generate_episode.py episodes/ep01_moon.md --dry-run   # 檢查腳本，不花額度
-py generate_episode.py episodes/ep01_moon.md --limit 5   # 先生成前 5 句試聽
 py generate_episode.py episodes/ep01_moon.md             # 生成整集
 ```
 
 音效與背景素材不在版控裡，第一次使用前請照 [`assets/SOURCES.md`](assets/SOURCES.md) 下載到 `assets/`。缺少素材時，`--dry-run` 會列出來，正式執行則會在呼叫 API 之前停下。
 
 輸出在 `build/`：`ep01_moon.wav`（只有人聲與插入的音效）、`ep01_moon_mix.wav`（混入疊加音效與背景）和 `ep01_moon.mp3`（響度 -16 LUFS，可直接上架）。
+
+## 製作新的一集
+
+在 Claude Code 裡輸入：
+
+```
+/new-episode                    # 自動從 episodes/TOPICS.md 選題
+/new-episode 為什麼會打哈欠      # 指定題目
+```
+
+Claude 會寫好腳本、查核知識點、決定音效與背景、跑 dry-run，然後**停下來等你確認**才花額度生成音檔。流程細節在 `.claude/skills/new-episode/SKILL.md`。
 
 ## 腳本格式
 
@@ -57,7 +67,7 @@ py generate_episode.py episodes/ep01_moon.md             # 生成整集
 | 選項 | 用途 |
 |---|---|
 | `--dry-run` | 只解析腳本、估算長度，不呼叫 API |
-| `--limit N` | 只生成前 N 句（試聽用） |
+| `--limit N` | 只生成前 N 句（實驗用；分批模式下部分批次的快取跟整集不通用，正式生成請直接跑整集） |
 | `--bgm 檔案` | 整集用這個背景音樂（循環、ducking、結尾淡出），**蓋掉腳本裡的 `[背景]`**，適合快速試不同的音樂 |
 | `--inspect` | 分析 `build/segments/` 裡已生成的批次音檔有哪些停頓（不呼叫 API） |
 | `--fallback` | 分批切不開的角色，改成一句一次重新生成（會多用額度） |
@@ -118,7 +128,10 @@ python -m unittest discover -s tests -v
 
 ```
 generate_episode.py   # 主程式：解析腳本 → TTS → 切句 → 組裝 → 輸出 mp3
-episodes/             # 每集腳本（Markdown）
+episodes/             # 每集腳本（Markdown）；TOPICS.md 是題目清單
+tools/
+  screen_audio.py     # 篩選背景素材（找鳥叫、碰撞等突發聲）
+.claude/skills/new-episode/  # /new-episode：製作新一集的流程
 tests/
   test_pipeline.py    # 離線測試
   fake/google/genai/  # 假的 google-genai SDK
