@@ -14,3 +14,9 @@ venv/
 
 # 另一個專案
 finreels/
+
+# 音效與背景素材（只進版控來源清單，見 assets/SOURCES.md）
+assets/*
+!assets/SOURCES.md
+# 從旁白配音切出來的呼吸聲，沒辦法重新下載，例外進版控
+!assets/narrator_*.wav

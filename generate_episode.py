@@ -14,6 +14,7 @@ import warnings
 import base64
 import hashlib
 import io
+import math
 import os
 import re
 import shutil
@@ -66,8 +67,34 @@ CHARACTERS = {
 
 DEFAULT_RATE = 24000  # Gemini TTS 輸出的取樣率（若回傳 WAV，會以檔頭為準）
 LINE_GAP_SEC = 0.6    # 每句之間的預設間隔
-BGM_VOLUME = 0.08     # 背景音樂相對音量
 LOUDNESS = "-16"      # Podcast 常見的響度標準（LUFS）
+PEAK_LIMIT = 0.79     # 峰值上限（約 -2 dBFS，留給 mp3 編碼的餘裕）
+
+# 音效與背景：腳本裡的名稱 → (assets/ 裡的檔案, 相對人聲的 dB)。
+# 程式會先量每個檔案的響度，所以 dB 是「比人聲小多少」，換素材不用重調。
+# 下載來源與授權記在 assets/SOURCES.md（素材本身不進版控）。
+ASSETS_DIR = Path(os.environ.get("ASSETS_DIR") or Path(__file__).resolve().parent / "assets")
+SOUNDS = {
+    "開場鈴": ("windchimes.ogg", -8),
+    "搖籃曲": ("chopin_prelude_op28_13.mp3", -18),
+    "放鬆音樂": ("wandering.wav", -18),
+    "夜晚蟲鳴": ("night_crickets.wav", -24),
+    "河水": ("river_flowing.wav", -24),
+    "貓頭鷹": ("scops_owl.ogg", -18),  # 疊在台詞底下，不會被 ducking，所以小聲一點
+    # 從 ep02 旁白配音切出來再拉長的呼吸聲（做法見 assets/SOURCES.md）。None = 保持原音量，本來就跟人聲一樣大
+    "吸氣1": ("narrator_inhale_1.wav", None),
+    "吸氣2": ("narrator_inhale_2.wav", None),
+    "吐氣": ("narrator_exhale.wav", None),
+}
+BGM_DB = -20          # --bgm 指定的整集背景音樂，相對人聲的 dB
+BG_FADE_IN = 3.0      # 背景淡入秒數
+BG_FADE_OUT = 8.0     # 背景淡出秒數（[背景 停]、換下一段背景、整集結尾）
+DUCK_DB = -4          # 有人說話時，背景再降低多少 dB（輕微，幾乎察覺不到）
+DUCK_RAMP = 1.0       # 降低與恢復各花幾秒
+BG_COMP_ABOVE = 2     # 背景比自己的平均音量大這麼多 dB 以上，就開始壓縮
+BG_COMP_RATIO = 4     # 壓縮比（超出的部分只留 1/4）
+BREATH_BELOW_DB = 15  # [音效 X 剪 自動]：句尾氣音至少要比台詞小這麼多 dB，才敢剪
+BREATH_MAX_TRIM = 1.0 # …而且最多剪這麼多秒
 
 # 分批模式
 BATCH_SEPARATOR = " <long pause>"  # 插在句子之間的停頓標記（實測約 3 秒，足夠跟逗號分開）
@@ -87,14 +114,35 @@ TOO_LONG_RATIO = 2.5
 
 LINE_RE = re.compile(r"^@(\S+)\s*(?:\{([^}]*)\})?\s*(.+)$")
 PAUSE_RE = re.compile(r"^\[停頓\s*([\d.]+)\s*秒\]$")
+SFX_RE = re.compile(r"^\[音效\s+(\S+?)(\s+疊)?(?:\s+剪\s*(?:([\d.]+)\s*秒|(自動)))?\]$")
+BG_RE = re.compile(r"^\[背景\s+(.+?)\]$")
+BG_STOP_RE = re.compile(r"^停(?:\s+([\d.]+)\s*秒)?$")
 
 
 def parse_script(path):
+    """回傳項目清單：("line", 角色, 導演提示, 台詞)、("pause", 秒)、("sfx", 名稱, 是否疊上去)、
+    ("bg", (名稱, …), 淡出秒數或 None)。背景名稱是空的 tuple 代表 [背景 停]。"""
     items = []
     for n, raw in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
         line = raw.strip()
         if m := PAUSE_RE.match(line):
             items.append(("pause", float(m.group(1))))
+        elif m := SFX_RE.match(line):
+            if m.group(1) not in SOUNDS:
+                sys.exit(f"第 {n} 行：未知音效「{m.group(1)}」，請在 SOUNDS 裡新增")
+            trim = "自動" if m.group(4) else float(m.group(3)) if m.group(3) else 0.0
+            if trim and (m.group(2) or not items or items[-1][0] != "line"):
+                sys.exit(f"第 {n} 行：「剪」只能用在緊接著台詞的插入型音效（剪掉那句台詞的句尾）")
+            items.append(("sfx", m.group(1), bool(m.group(2)), trim))
+        elif m := BG_RE.match(line):
+            if stop := BG_STOP_RE.match(m.group(1)):
+                items.append(("bg", (), float(stop.group(1)) if stop.group(1) else None))
+                continue
+            names = tuple(m.group(1).split())   # 可以同時播多個，例如 [背景 夜晚蟲鳴 河水]
+            for name in names:
+                if name not in SOUNDS:
+                    sys.exit(f"第 {n} 行：未知背景「{name}」，請在 SOUNDS 裡新增")
+            items.append(("bg", names, None))
         elif m := LINE_RE.match(line):
             speaker, direction, text = m.group(1), (m.group(2) or "").strip(), m.group(3).strip()
             if speaker not in CHARACTERS:
@@ -539,6 +587,229 @@ def synthesize_batch(client, speaker, entries, cache_dir, min_interval):
     return pieces
 
 
+# ---- 音效與背景 ----------------------------------------------------------
+
+
+def sound_path(name):
+    return ASSETS_DIR / SOUNDS[name][0]
+
+
+def sound_files(items, bgm):
+    """這一集用到的素材：[(名稱, 檔案)]。有 --bgm 時，腳本裡的 [背景] 會被忽略。"""
+    names = [i[1] for i in items if i[0] == "sfx"]
+    names += [] if bgm else [n for i in items if i[0] == "bg" for n in i[1]]
+    files = [(n, sound_path(n)) for n in dict.fromkeys(names)]
+    return files + ([("--bgm", Path(bgm))] if bgm else [])
+
+
+def check_sounds(items, bgm):
+    """列出素材並檢查檔案與 ffmpeg 都在，回傳缺少的東西。"""
+    files = sound_files(items, bgm)
+    if not files:
+        return []
+    if bgm and any(i[0] == "bg" for i in items):
+        print("有指定 --bgm，腳本裡的 [背景] 會被忽略")
+    print("音效與背景：")
+    missing = []
+    for name, path in files:
+        print(f"  {name}：{path}" + ("" if path.exists() else "（找不到）"))
+        if not path.exists():
+            missing.append(str(path))
+    if not shutil.which("ffmpeg"):
+        missing.append("ffmpeg")
+    return missing
+
+
+def run_ffmpeg(args):
+    p = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-y", *args],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if p.returncode:
+        sys.exit(f"ffmpeg 執行失敗：\n{p.stderr[-1500:]}")
+    return p
+
+
+@lru_cache(maxsize=None)
+def measure_lufs(path):
+    """整個檔案的響度（LUFS）。"""
+    p = run_ffmpeg(["-i", str(path), "-af", "ebur128=framelog=quiet", "-f", "null", "-"])
+    return float(re.findall(r"I:\s+(-?[\d.]+) LUFS", p.stderr)[-1])
+
+
+def gain_db(path, rel_db):
+    """把素材調到「人聲響度 + rel_db」需要的增益。rel_db 是 None 就保持原音量。"""
+    return 0.0 if rel_db is None else float(LOUDNESS) + rel_db - measure_lufs(path)
+
+
+def decode_sound(name, rate):
+    """把插入型音效解碼成跟人聲相同格式的 PCM，並調好音量。"""
+    path = sound_path(name)
+    p = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path),
+                        "-af", f"volume={gain_db(path, SOUNDS[name][1]):.2f}dB",
+                        "-ac", "1", "-ar", str(rate), "-f", "s16le", "-"], capture_output=True)
+    if p.returncode:
+        sys.exit(f"讀不了音效 {path}：{p.stderr.decode('utf-8', 'replace').strip()}")
+    return p.stdout
+
+
+def trailing_breath(audio):
+    """量句尾被切斷的氣音有多長（秒），給 [音效 X 剪 自動] 用。
+    只認「台詞 → 一段安靜 → 句尾一小段比台詞小很多的聲音」；分不清就回傳 0（不剪），
+    因為多聽到半口氣沒關係，剪到台詞就糟了。回傳 (秒數, 說明)。"""
+    a = array("h", audio.pcm)
+    n = audio.rate // 100   # 10 毫秒一格
+    levels = []
+    for k in range(len(a) // n):
+        frame = a[k * n:(k + 1) * n]
+        levels.append(20 * math.log10(math.sqrt(sum(x * x for x in frame) / n) + 1))
+    # 停頓裡的雜訊每 10 毫秒會跳動好幾 dB，先取前後 5 格的中位數再判斷
+    levels = [sorted(levels[max(k - 2, 0):k + 3])[len(levels[max(k - 2, 0):k + 3]) // 2]
+              for k in range(len(levels))]
+    if len(levels) < 50:
+        return 0.0, "句子太短"
+    ordered = sorted(levels)
+    floor, speech = ordered[len(levels) // 10], ordered[len(levels) * 95 // 100]
+    quiet = lambda lv: lv < floor + 10
+    k = len(levels)
+    while k and quiet(levels[k - 1]):          # 最後面可能還有一點空白
+        k -= 1
+    end = k
+    while k and not quiet(levels[k - 1]):      # 往前找出句尾那段聲音
+        k -= 1
+    start = k
+    if start == end:
+        return 0.0, "句尾沒有氣音"
+    if max(levels[start:end]) > speech - BREATH_BELOW_DB:
+        return 0.0, "句尾的聲音太大，可能是台詞"
+    gap = 0
+    while k and quiet(levels[k - 1]) and gap < 30:
+        k -= 1
+        gap += 1
+    if gap < 15:
+        return 0.0, "句尾的聲音前面沒有明顯的停頓，分不清是不是台詞"
+    secs = (len(levels) - start) / 100 + 0.05   # 氣音是慢慢變大的，起點多留一點
+    if secs > BREATH_MAX_TRIM:
+        return 0.0, f"句尾的聲音長達 {secs:.2f} 秒，不像被切斷的氣音"
+    return secs, "找到句尾氣音"
+
+
+def assemble(items, rendered, rate, insert_pcm):
+    """把台詞、停頓、插入型音效接成人聲軌。
+    同時記下疊加音效 [(秒, 名稱)]、背景 [(名稱, 開始秒, 停止秒或 None, 淡出秒數或 None)]、
+    說話區間 [(開始, 結束)]。"""
+    pcm = bytearray()
+    overlays, backgrounds, speech = [], [], []
+    current = ((), 0.0)  # 正在播的背景：(名稱們, 開始秒數)
+
+    def now():
+        return len(pcm) / 2 / rate
+
+    for i, item in enumerate(items):
+        if item[0] == "pause":
+            pcm += b"\x00\x00" * int(rate * item[1])
+        elif item[0] == "line":
+            start = now()
+            pcm += rendered[i].pcm
+            last_line = rendered[i]
+            speech.append((start, now()))
+            pcm += b"\x00\x00" * int(rate * LINE_GAP_SEC)
+        elif item[0] == "sfx" and item[2]:
+            overlays.append((now(), item[1]))
+        elif item[0] == "sfx":
+            trim = item[3]
+            if trim == "自動":
+                trim, why = trailing_breath(last_line)
+                print(f"  [音效 {item[1]}]：{why}，剪掉句尾 {trim:.2f} 秒")
+            if item[3]:   # 剪掉前一句的句間空白和句尾（例如被切句切斷的半口氣），換成這個音效
+                del pcm[len(pcm) - 2 * (int(rate * LINE_GAP_SEC) + int(rate * trim)):]
+                speech[-1] = (speech[-1][0], min(speech[-1][1], now()))
+            pcm += insert_pcm(item[1])
+        elif item[0] == "bg":
+            names, start = current
+            backgrounds += [(name, start, now(), item[2]) for name in names]
+            current = (item[1], now())
+    names, start = current
+    backgrounds += [(name, start, None, None) for name in names]
+    return Audio(bytes(pcm), rate), overlays, backgrounds, speech
+
+
+def background_tracks(backgrounds, total, bgm):
+    """每段背景要怎麼播：[(檔案, 相對 dB, 開始, 開始淡出, 結束)]。--bgm 會蓋掉腳本裡的 [背景]。
+    遇到 [背景 停] 或下一段背景就開始淡出（新的同時淡入，等於交叉淡化）；沒停的播到結尾前淡出。
+    淡出秒數預設 BG_FADE_OUT，[背景 停 N秒] 可以指定。"""
+    if bgm:
+        return [(Path(bgm), BGM_DB, 0.0, max(total - BG_FADE_OUT, 0.0), total)]
+    tracks = []
+    for name, start, stop, fade in backgrounds:
+        if stop is None:
+            fade_at, end = max(total - BG_FADE_OUT, start), total
+        else:
+            fade_at, end = stop, min(stop + (fade or BG_FADE_OUT), total)
+        if end > start:
+            tracks.append((sound_path(name), SOUNDS[name][1], start, fade_at, end))
+    return tracks
+
+
+def duck_spans(speech):
+    """把說話區間合併：兩句之間短到來不及恢復音量的，就當成同一段。"""
+    spans = []
+    for s, e in speech:
+        if spans and s - DUCK_RAMP <= spans[-1][1] + DUCK_RAMP:
+            spans[-1][1] = max(spans[-1][1], e)
+        else:
+            spans.append([s, e])
+    return spans
+
+
+def duck_expr(speech):
+    """給 ffmpeg volume 濾鏡的運算式：說話時降低 DUCK_DB，前後各用 DUCK_RAMP 秒平滑過渡。
+    合併後的區間（含過渡）互不重疊，所以可以直接相加。"""
+    r = DUCK_RAMP
+    terms = [f"clip(min((t-{s - r:.3f})/{r},({e + r:.3f}-t)/{r}),0,1)" for s, e in duck_spans(speech)]
+    return f"pow(10,{DUCK_DB / 20}*({'+'.join(terms)}))" if terms else "1"
+
+
+def mix(voice_path, out_path, rate, overlays, tracks, speech):
+    """用 ffmpeg 把疊加音效和背景混進人聲軌。"""
+    inputs, chains, labels = ["-i", str(voice_path)], [], ["[0:a]"]
+    fmt = f"aformat=channel_layouts=mono,aresample={rate}"
+    for t, name in overlays:
+        k = len(labels)
+        path = sound_path(name)
+        inputs += ["-i", str(path)]
+        chains.append(f"[{k}:a]{fmt},volume={gain_db(path, SOUNDS[name][1]):.2f}dB,"
+                      f"adelay={t * 1000:.0f}:all=1[s{k}]")
+        labels.append(f"[s{k}]")
+    duck = duck_expr(speech)
+    for path, rel_db, start, fade_at, end in tracks:
+        k = len(labels)
+        inputs += ["-stream_loop", "-1", "-i", str(path)]
+        # asetnsamples 把 frame 切成 20 毫秒，volume 的運算式才會逐小段更新
+        # 壓縮：比這段背景的平均音量大 BG_COMP_ABOVE dB 以上的部分壓小（鋼琴曲樂句變大聲時才不會蓋過說話）
+        threshold = max(10 ** ((float(LOUDNESS) + (rel_db or 0) + BG_COMP_ABOVE) / 20), 0.001)
+        chains.append(
+            f"[{k}:a]{fmt},volume={gain_db(path, rel_db):.2f}dB,"
+            f"acompressor=threshold={threshold:.5f}:ratio={BG_COMP_RATIO}:attack=20:release=400:knee=4,"
+            f"atrim=duration={end - start:.3f},"
+            f"afade=t=in:d={max(min(BG_FADE_IN, fade_at - start), 0.01):.3f},"
+            f"afade=t=out:st={fade_at - start:.3f}:d={max(end - fade_at, 0.01):.3f},"
+            f"adelay={start * 1000:.0f}:all=1,asetnsamples=n={rate // 50}:p=0,"
+            f"volume='{duck}':eval=frame[s{k}]")
+        labels.append(f"[s{k}]")
+    chains.append(f"{''.join(labels)}amix=inputs={len(labels)}:duration=first:normalize=0[out]")
+    run_ffmpeg([*inputs, "-filter_complex", ";".join(chains), "-map", "[out]", "-ac", "1", str(out_path)])
+
+
+def export_mp3(src, mp3_path):
+    """響度標準化：先量整集響度，再用同一個固定增益調到 LOUDNESS，零星的峰值交給限制器壓住。
+    不用 loudnorm：Gemini 配音的峰值本來就接近 0 dBFS，loudnorm 的固定增益模式做不到，
+    會退回動態模式，在停頓時把背景拉大聲。"""
+    gain = float(LOUDNESS) - measure_lufs(src)
+    run_ffmpeg(["-i", str(src), "-af",
+                # 先升取樣再壓峰值，才抓得到取樣點之間的峰值（不然 mp3 的真峰值會超過 0 dB）
+                f"volume={gain:.2f}dB,aresample=96000,alimiter=limit={PEAK_LIMIT}:attack=5:release=50:level=false",
+                "-ac", "1", "-ar", "44100", "-b:a", "96k", str(mp3_path)])
+
+
 def inspect_batches():
     """列出每個批次音檔裡最長的幾段靜音，用來判斷句間停頓跟句中停頓差多少。"""
     files = sorted(Path("build/segments").glob("batch_*.wav"))
@@ -562,7 +833,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("script")
     ap.add_argument("--dry-run", action="store_true", help="只解析與估算，不呼叫 API")
-    ap.add_argument("--bgm", help="背景音樂檔（會循環播放並在結尾淡出）")
+    ap.add_argument("--bgm", help="整集用這個背景音樂（循環、結尾淡出），蓋掉腳本裡的 [背景]")
     ap.add_argument("--rpm", type=float, default=3,
                     help="每分鐘最多呼叫幾次 API（免費方案是 3，付費方案可以調高）")
     ap.add_argument("--limit", type=int, help="只生成前 N 句，用來先試聽")
@@ -593,6 +864,8 @@ def main():
         print(f"  {speaker}：{sum(1 for i in lines if i[1] == speaker)} 句")
 
     if args.dry_run:
+        if missing := check_sounds(items, args.bgm):
+            print(f"缺少：{'、'.join(missing)}（素材下載來源見 assets/SOURCES.md）")
         _, sp, d, t = lines[0]
         print(f"\n第一句送出的內容：\n  台詞：{t}\n  style：{style_for(sp, d)}")
         return
@@ -624,6 +897,11 @@ def main():
         cut = [i for i, it in enumerate(items) if it[0] == "line"][: args.limit][-1]
         items = items[: cut + 2]
         stem += f"_first{args.limit}"
+    # 素材有問題要在呼叫 API 之前就停下，不然額度花了卻組不成一集
+    if missing := check_sounds(items, args.bgm):
+        sys.exit(f"缺少：{'、'.join(missing)}（素材下載來源見 assets/SOURCES.md）")
+    for _, path in sound_files(items, args.bgm):
+        measure_lufs(path)
     min_interval = 60 / args.rpm + 1
     line_idx = [i for i, it in enumerate(items) if it[0] == "line"]
     speakers = list(dict.fromkeys(items[i][1] for i in line_idx))
@@ -663,39 +941,25 @@ def main():
     if any(a.rate != rate for a in rendered.values()):
         sys.exit("各段音訊的取樣率不一致，請刪掉 build/segments/ 後重跑")
 
-    def silence(sec):
-        return b"\x00\x00" * int(rate * sec)
-
-    pcm = bytearray()
-    for i, item in enumerate(items):
-        if item[0] == "pause":
-            pcm += silence(item[1])
-        else:
-            pcm += rendered[i].pcm + silence(LINE_GAP_SEC)
-    episode = Audio(bytes(pcm), rate)
-
+    episode, overlays, backgrounds, speech = assemble(
+        items, rendered, rate, lambda name: decode_sound(name, rate))
     wav_path = build / f"{stem}.wav"
     episode.save(wav_path)
     print(f"已輸出 {wav_path}（{episode.seconds / 60:.1f} 分鐘）")
 
     if not shutil.which("ffmpeg"):
-        print("找不到 ffmpeg，略過 mp3 輸出、響度標準化與背景音樂")
+        print("找不到 ffmpeg，略過 mp3 輸出與響度標準化")
         return
 
-    mp3_path = build / f"{stem}.mp3"
-    fade_start = max(episode.seconds - 8, 0)
-    if args.bgm:
-        filt = (
-            f"[1:a]volume={BGM_VOLUME},afade=t=out:st={fade_start}:d=8[bg];"
-            f"[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0,"
-            f"loudnorm=I={LOUDNESS}:TP=-1.5:LRA=11[out]"
-        )
-        cmd = ["ffmpeg", "-y", "-i", str(wav_path), "-stream_loop", "-1", "-i", args.bgm,
-               "-filter_complex", filt, "-map", "[out]"]
+    tracks = background_tracks(backgrounds, episode.seconds, args.bgm)
+    if overlays or tracks:
+        mixed = build / f"{stem}_mix.wav"
+        mix(wav_path, mixed, rate, overlays, tracks, speech)
+        print(f"已混入 {len(overlays)} 個疊加音效、{len(tracks)} 段背景：{mixed}")
     else:
-        cmd = ["ffmpeg", "-y", "-i", str(wav_path), "-af", f"loudnorm=I={LOUDNESS}:TP=-1.5:LRA=11"]
-    cmd += ["-ac", "1", "-ar", "44100", "-b:a", "96k", str(mp3_path)]
-    subprocess.run(cmd, check=True, capture_output=True)
+        mixed = wav_path
+    mp3_path = build / f"{stem}.mp3"
+    export_mp3(mixed, mp3_path)
     print(f"已輸出 {mp3_path}")
 
 
