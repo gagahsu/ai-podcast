@@ -317,8 +317,208 @@ def gen_bgm(duration=85.0):
     print(f"Generated {mp3_path.name} (length: {duration}s)")
 
 
+def gen_airplane(duration=3.2):
+    """飛機呼嘯飛過（都卜勒調變白噪音）。"""
+    n = int(RATE * duration)
+    t = np.linspace(0, duration, n, endpoint=False)
+    # 音量包絡：靠近時變大，掠過後拉長衰減
+    env = np.exp(-((t - 1.2) ** 2) / 0.35)
+    noise = np.random.uniform(-1, 1, n)
+    # 都卜勒音調滑移 (接近 850Hz -> 遠離 320Hz)
+    freq = 850.0 - 530.0 / (1.0 + np.exp(-(t - 1.2) * 5.0))
+    phase = 2 * np.pi * np.cumsum(freq) / RATE
+    tone = (np.sin(phase) + 0.3 * np.sin(phase * 2.0)) * 0.4
+    data = (noise * 0.6 + tone) * env * 0.85
+    save_wav(ASSETS_DIR / "sfx_airplane.wav", data)
+    print("Generated sfx_airplane.wav")
+
+
+def gen_waves(duration=5.0):
+    """海島沙灘海浪拍打聲（緩緩湧上沙灘又退去）。"""
+    n = int(RATE * duration)
+    t = np.linspace(0, duration, n, endpoint=False)
+    # 兩波海浪
+    wave_env1 = np.sin(np.pi * np.clip(t / 3.0, 0, 1)) ** 2
+    wave_env2 = np.sin(np.pi * np.clip((t - 1.8) / 3.2, 0, 1)) ** 2
+    env = wave_env1 * 0.8 + wave_env2 * 0.6
+    noise = np.random.uniform(-0.8, 0.8, n)
+    # 柔和低頻海洋浪潮
+    low_rumble = np.sin(2 * np.pi * 55 * t) * 0.25 * env
+    data = (noise * 0.6 + low_rumble) * env
+    fade = int(RATE * 0.5)
+    data[:fade] *= np.linspace(0, 1, fade)
+    data[-fade:] *= np.linspace(1, 0, fade)
+    data = data / (np.max(np.abs(data)) + 1e-6) * 0.75
+    save_wav(ASSETS_DIR / "sfx_waves.wav", data)
+    print("Generated sfx_waves.wav")
+
+
+def gen_fireworks(duration=4.2):
+    """澎湖國際花火節煙火（哨音上升 + 巨大爆炸 + 燦爛劈啪聲）。"""
+    n = int(RATE * duration)
+    total = np.zeros(n)
+    t = np.linspace(0, duration, n, endpoint=False)
+
+    # 1. 升空哨音 (0 ~ 1.0s)
+    whistle_len = int(RATE * 1.0)
+    wt = t[:whistle_len]
+    w_freq = np.linspace(700, 2200, whistle_len)
+    w_phase = 2 * np.pi * np.cumsum(w_freq) / RATE
+    w_env = (wt / 1.0) ** 1.8
+    total[:whistle_len] += np.sin(w_phase) * w_env * 0.35
+
+    # 2. 巨大主爆炸 (1.0s 瞬間)
+    boom_start = int(RATE * 0.98)
+    boom_len = int(RATE * 1.8)
+    bt = np.linspace(0, 1.8, boom_len, endpoint=False)
+    boom_env = np.exp(-bt / 0.25)
+    boom_thud = np.sin(2 * np.pi * 58 * bt) * boom_env * 0.8
+    boom_noise = np.random.uniform(-1, 1, boom_len) * np.exp(-bt / 0.12) * 0.9
+    total[boom_start : boom_start + boom_len] += (boom_thud + boom_noise) * 0.85
+
+    # 3. 散開劈啪火星 (1.2s ~ 3.8s)
+    for _ in range(40):
+        pos = int(RATE * random.uniform(1.2, 3.4))
+        crackle_len = random.randint(120, 260)
+        c_wave = np.random.uniform(-1, 1, crackle_len) * np.exp(-np.linspace(0, 4, crackle_len))
+        if pos + crackle_len < n:
+            total[pos : pos + crackle_len] += c_wave * random.uniform(0.3, 0.7)
+
+    fade_out = int(RATE * 0.8)
+    total[-fade_out:] *= np.linspace(1, 0, fade_out)
+    total = total / (np.max(np.abs(total)) + 1e-6) * 0.9
+    save_wav(ASSETS_DIR / "sfx_fireworks.wav", total)
+    print("Generated sfx_fireworks.wav")
+
+
+def gen_fireworks_muffled(duration=3.6):
+    """戴上耳塞後的沉悶低音煙火聲（波、波、波）。"""
+    n = int(RATE * duration)
+    total = np.zeros(n)
+    # 三次沉悶低沉微弱衝擊「波、波、波」
+    for delay in [0.2, 1.1, 2.0]:
+        start = int(RATE * delay)
+        pop_len = int(RATE * 0.4)
+        pt = np.linspace(0, 0.4, pop_len, endpoint=False)
+        pop = np.sin(2 * np.pi * 75 * pt) * np.exp(-pt / 0.08) * 0.5
+        total[start : start + pop_len] += pop
+
+    fade_out = int(RATE * 0.5)
+    total[-fade_out:] *= np.linspace(1, 0, fade_out)
+    total = total / (np.max(np.abs(total)) + 1e-6) * 0.65
+    save_wav(ASSETS_DIR / "sfx_fireworks_muffled.wav", total)
+    print("Generated sfx_fireworks_muffled.wav")
+
+
+def gen_penghu_bgm(duration=90.0):
+    """澎湖冒險 BGM：甜美、充滿想像力與海島微風的童趣輕快音樂（G 大調）。"""
+    bpm = 116
+    beat_sec = 60.0 / bpm
+    bar_sec = beat_sec * 4.0
+    total_samples = int(RATE * duration)
+    audio = np.zeros(total_samples)
+
+    notes = {
+        "G3": 196.00, "D3": 146.83, "E3": 164.81, "C3": 130.81,
+        "G4": 392.00, "B4": 493.88, "D4": 293.66, "E4": 329.63,
+        "C4": 261.63, "F#4": 369.99, "A4": 440.00,
+        "C5": 523.25, "D5": 587.33, "E5": 659.25, "G5": 783.99, "B5": 987.77,
+    }
+
+    # 和弦進行：G -> D -> Em -> C
+    progression = [
+        ("G3", ["G4", "B4", "D5", "G5"]),
+        ("D3", ["F#4", "A4", "D5", "F#4"]),
+        ("E3", ["G4", "B4", "E5", "G4"]),
+        ("C3", ["G4", "C4", "E4", "C5"]),
+    ]
+
+    # 甜美鐘琴/木琴輕快跳躍旋律
+    melody_patterns = [
+        [(0.0, "G5", 0.3), (0.5, "B5", 0.25), (1.0, "D5", 0.35), (1.5, "B5", 0.25)],
+        [(0.0, "A4", 0.3), (0.5, "D5", 0.25), (1.0, "F#4", 0.35), (1.5, "A4", 0.25)],
+        [(0.0, "G5", 0.3), (0.5, "E5", 0.25), (1.0, "G5", 0.35), (1.5, "E5", 0.25)],
+        [(0.0, "E5", 0.3), (0.5, "D5", 0.25), (1.0, "C5", 0.35), (1.5, "G5", 0.45)],
+    ]
+
+    def render_bell(freq, dur, decay=3.5):
+        n = int(RATE * dur)
+        t = np.linspace(0, dur, n, endpoint=False)
+        # 晶亮透明的鐘琴/鋼片琴音色 (帶高頻共振)
+        wave = (
+            np.sin(2 * np.pi * freq * t) * 0.65
+            + np.sin(2 * np.pi * freq * 2.756 * t) * 0.25
+            + np.sin(2 * np.pi * freq * 5.404 * t) * 0.1
+        )
+        return wave * np.exp(-t * decay)
+
+    def render_pluck(freq, dur, decay=4.5):
+        n = int(RATE * dur)
+        t = np.linspace(0, dur, n, endpoint=False)
+        wave = np.sin(2 * np.pi * freq * t) * 0.7 + np.sin(2 * np.pi * freq * 2 * t) * 0.3
+        return wave * np.exp(-t * decay)
+
+    cur_time = 0.0
+    bar_idx = 0
+    while cur_time < duration - 2.0:
+        prog_step = bar_idx % 4
+        bass_note, chord_notes = progression[prog_step]
+
+        # 貝斯
+        for beat in [0.0, 1.0]:
+            t_offset = cur_time + beat * (beat_sec * 2)
+            if t_offset + 0.8 < duration:
+                idx = int(t_offset * RATE)
+                sample = render_pluck(notes[bass_note], 0.6, decay=2.8) * 0.32
+                end_idx = min(total_samples, idx + len(sample))
+                audio[idx:end_idx] += sample[: end_idx - idx]
+
+        # 烏克麗麗輕巧刷弦
+        for subbeat in [0.5, 1.0, 1.5, 2.5, 3.0, 3.5]:
+            t_offset = cur_time + subbeat * beat_sec
+            if t_offset + 0.35 < duration:
+                idx = int(t_offset * RATE)
+                for cn in chord_notes:
+                    sample = render_pluck(notes[cn], 0.32, decay=6.5) * 0.075
+                    end_idx = min(total_samples, idx + len(sample))
+                    audio[idx:end_idx] += sample[: end_idx - idx]
+
+        # 鐘琴主旋律（晶亮夢幻）
+        pattern = melody_patterns[prog_step]
+        for note_offset, note_name, note_dur in pattern:
+            t_offset = cur_time + note_offset * (beat_sec * 2)
+            if t_offset + note_dur < duration:
+                idx = int(t_offset * RATE)
+                sample = render_bell(notes[note_name], note_dur, decay=4.2) * 0.26
+                end_idx = min(total_samples, idx + len(sample))
+                audio[idx:end_idx] += sample[: end_idx - idx]
+
+        cur_time += bar_sec
+        bar_idx += 1
+
+    fade_in = int(RATE * 1.5)
+    fade_out = int(RATE * 3.5)
+    audio[:fade_in] *= np.linspace(0, 1, fade_in)
+    audio[-fade_out:] *= np.linspace(1, 0, fade_out)
+    audio = audio / (np.max(np.abs(audio)) + 1e-6) * 0.85
+
+    wav_path = ASSETS_DIR / "penghu_adventure_bgm.wav"
+    mp3_path = ASSETS_DIR / "penghu_adventure_bgm.mp3"
+    save_wav(wav_path, audio)
+
+    cmd = [
+        "ffmpeg", "-y", "-i", str(wav_path),
+        "-codec:a", "libmp3lame", "-b:a", "192k",
+        str(mp3_path)
+    ]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if wav_path.exists():
+        wav_path.unlink()
+    print(f"Generated {mp3_path.name} (length: {duration}s)")
+
+
 def main():
-    print("Generating assets for Okinawa Adventure...")
+    print("Generating assets for Okinawa and Penghu Adventures...")
     gen_clap()
     gen_highfive()
     gen_applause()
@@ -329,6 +529,12 @@ def main():
     gen_stomach()
     gen_sizzle()
     gen_bgm()
+    # 澎湖素材
+    gen_airplane()
+    gen_waves()
+    gen_fireworks()
+    gen_fireworks_muffled()
+    gen_penghu_bgm()
     print("All assets generated successfully!")
 
 

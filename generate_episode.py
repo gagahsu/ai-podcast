@@ -64,6 +64,7 @@ CHARACTERS = {
     "棉棉": ("Achernar", "sleepy little child, soft and slow"),
     "咕咕爺爺": ("Gacrux", "kind old grandfather, slow, with a smile"),
     "許谷達": ("Leda", "5-year-old cheerful, energetic boy, storytelling to classmates, lively and expressive"),
+    "許奈娥": ("Aoede", "5-year-old sweet, cheerful, imaginative girl, storytelling to classmates, cute and expressive"),
 }
 
 DEFAULT_RATE = 24000  # Gemini TTS 輸出的取樣率（若回傳 WAV，會以檔頭為準）
@@ -100,6 +101,12 @@ SOUNDS = {
     "肚子咕嚕": ("sfx_stomach.wav", -12),
     "烤肉滋滋": ("sfx_sizzle.wav", -16),
     "掌聲": ("sfx_applause.wav", -14),
+    # 澎湖大冒險用素材
+    "澎湖冒險": ("penghu_adventure_bgm.mp3", -20),
+    "飛機咻": ("sfx_airplane.wav", -12),
+    "海浪": ("sfx_waves.wav", -20),
+    "煙火": ("sfx_fireworks.wav", -10),
+    "悶煙火": ("sfx_fireworks_muffled.wav", -14),
 }
 BGM_DB = -20          # --bgm 指定的整集背景音樂，相對人聲的 dB
 BG_FADE_IN = 3.0      # 背景淡入秒數
