@@ -37,9 +37,9 @@ PYTHONPATH=tests/fake python generate_episode.py episodes/ep01_moon.md --rpm 600
 ## 程式架構（generate_episode.py）
 
 - `parse_script`：解析 `@角色 {style} 台詞` 和 `[停頓 N秒]`。
-- 共用片段：每集一樣的開場、放鬆、咕咕爺爺登場寫在 `episodes/shared.md`（`## 名稱` 分段），集數腳本用 `[共用 名稱]` 引用，`expand_shared` 展開。共用的台詞另成一批（每個角色一批），快取在 `assets/shared/`（**進版控**），所以每集的招牌段落聲音都一樣，生成一次之後不再花額度。改 shared.md 的任何字、style 或順序都會讓這批快取失效、要重新生成，新舊集的聲音也會不同，改之前要先問使用者。ep02、ep03 還是把這些段落直接寫在腳本裡（舊的做法）。
+- 共用片段：每集一樣的開場、放鬆、咕咕爺爺登場寫在 `episodes/shared.md`（`## 名稱` 分段），集數腳本用 `[共用 名稱]` 引用，`expand_shared` 展開。共用的台詞另成一批（每個角色一批），快取在 `assets/shared/`（**進版控**），所以每集的招牌段落聲音都一樣，生成一次之後不再花額度。改 shared.md 的任何字、style 或順序都會讓這批快取失效、要重新生成，新舊集的聲音也會不同，改之前要先問使用者。ep01–ep03 原本把這些段落直接寫在腳本裡（舊做法），現已全部升級為引用 shared.md。
 - `CHARACTERS`：角色 → (聲音, 基本風格英文)。`style_for` 把基本風格和每句的導演提示合併。
-- `_call_api`：Interactions API（`client.interactions.create`），每段台詞帶 `annotations=[{"type": "speech_metadata", "style": ...}]`。依 `--rpm` 排隊；429 依伺服器建議秒數重試；每日額度用完時，`Gemini` 包裝類別會從免費 key 換成 `GEMINI_API_KEY_PAID`（沒設或加 `--no-paid` 就結束）。金鑰從 `.env` 讀（`load_env`，已設的環境變數優先）。**不要做多帳號輪替 key**：用多個帳號繞過免費額度違反 Gemini API 條款，使用者已確認不做。錯誤類別不固定，用 `status_code` / `code` 判斷。
+- `_call_api`：Interactions API（`client.interactions.create`），每段台詞帶 `annotations=[{"type": "speech_metadata", "style": ...}]`。依 `--rpm` 排隊；429 依伺服器建議秒數重試；每日額度用完時，`Gemini` 包裝類別會從免費 key 換成 `GEMINI_API_KEY_PAID`（沒設或加 `--no-paid` 就結束）。金鑰從 `.env` 讀（`load_env`，**.env 有填的值優先**，蓋掉環境變數：Windows 使用者環境變數裡的舊 key 曾默默蓋掉 .env 的新 key。測試設 `NO_DOTENV=1` 不讀 .env）。**不要做多帳號輪替 key**：用多個帳號繞過免費額度違反 Gemini API 條款，使用者已確認不做。錯誤類別不固定，用 `status_code` / `code` 判斷。請求超過 `API_TIMEOUT_SEC` 就停下、**不自動重試**（伺服器可能已生成完、已算額度；ep06 曾因伺服器斷線而無逾時，卡了 10 分鐘以上）。
 - `Audio`：16-bit 單聲道 PCM ＋ 取樣率。API 可能回 raw PCM 或 WAV，`from_api` 兩種都處理；快取存成 WAV。
 - 快取鍵：`sha1(模型|聲音|送出內容)`。**改動送出內容的格式（分隔標記、style 組法）會讓所有快取失效**，使用者就得重新花額度，改之前要想清楚並告知使用者。
 - 切句：
@@ -50,9 +50,10 @@ PYTHONPATH=tests/fake python generate_episode.py episodes/ep01_moon.md --rpm 600
   - 人工切點：批次音檔旁放 `<批次檔名>.cuts.txt`（每行一句「開始秒 結束秒」；一行寫好幾組就接起來，可以剪掉句中不要的聲音），`manual_cuts` 就照它切，切完一樣經過 `check_pieces` 核對，不自動切、不花額度。用在音檔本身能用、但模型念錯的時候（ep04 棉棉把一句念了兩次，對齊必然失敗）。秒數由 Claude 用 `transcribe_chars`／`_silent_runs` 離線找出、對每段單獨辨識確認，再請使用者試聽。集數的切點檔在 `build/`（不進版控），共用片段的在 `assets/shared/`（進版控；ep04 時用它剪掉了 `<exhales>` 念出來的短吐氣聲，見 shared.md 說明），換了台詞或 style 快取鍵就變，舊的切點檔自然不會被用到。
 - `inspect_batches`：`--inspect`，列出批次音檔的靜音長度，除錯用，不呼叫 API。
 - 音效與背景：`SOUNDS`：名稱 → (assets/ 裡的檔名, 相對人聲 dB)。`measure_lufs` 先量素材響度，所以 dB 跟素材原本多大聲無關。
-  - `assemble`：插入型 `[音效 X]` 直接接進人聲軌；同時記下疊加音效、背景區段、說話區間的秒數。
+  - `assemble`：插入型 `[音效 X]` 直接接進人聲軌；同時記下疊加音效、背景區段、說話區間的秒數。`[音量 -NdB]` 讓之後的台詞都調整 N dB（直到下一個 `[音量]`），只在組裝時處理，不影響快取鍵。用在 Gemini 把該輕的段落念得比較大聲時（ep06 後段比中段大 6–8 dB，style 寫 softer 也沒用）。
   - `mix`：ffmpeg `adelay` 定位、`amix normalize=0`。背景的 ducking 用 `volume` 運算式（`duck_expr`），**前面一定要有 `asetnsamples`**，否則 frame 太大，運算式約 0.5 秒才更新一次。
   - `export_mp3`：量整集響度 → 同一個固定增益 → 升取樣到 96kHz 再用 `alimiter` 壓峰值。**不要用 `loudnorm`**：Gemini 配音峰值本來就約 +0.6 dBTP，loudnorm 的 linear 模式做不到，會退回動態模式，在停頓時把背景拉大聲（ep02 實測）。不升取樣的話，mp3 真峰值會超過 0 dB。
+  - ffmpeg 一律經過 `find_ffmpeg`，不要寫死 `"ffmpeg"`：這台電腦的 PATH 上有 miniconda 附的 4.3（Bash 工具會先找到它），不支援 `ebur128=framelog=quiet`、`amix normalize`。`find_ffmpeg` 依 PATH 順序用 `FFMPEG_PROBE` 試跑，挑第一個能用的；`.env` 設 `FFMPEG` 就只用那一個。用到新的濾鏡或選項時，要加進 `FFMPEG_PROBE`。
   - `--bgm` 會蓋掉腳本裡的 `[背景]`（使用者選的），不是兩者疊加。
   - 素材有缺少時，要在呼叫 API **之前**停下（`check_sounds`）。測試用 `ASSETS_DIR` 指向合成素材，不依賴使用者下載的檔案。
   - 音效只在組裝階段處理，不影響 TTS 快取鍵。
@@ -78,4 +79,4 @@ PYTHONPATH=tests/fake python generate_episode.py episodes/ep01_moon.md --rpm 600
 - 還沒選定台灣口音的聲音；目前旁白是 Sulafat（使用者在 playground 也試過 Tova）。
 - 還沒決定要用 3.8 Flash 還是 Lite。
 - 素材的 dB 設定是預估值，使用者只聽過 ep02 的部分版本。換成蕭邦前奏曲＋〈Wandering〉的完整 ep02 還要再聽一次。
-- ep01 還沒加任何音效與背景（這台電腦沒有 ep01 的配音快取）。
+- ep01 已重製為新流程腳本（共用片段、音效與背景、床上想像小實驗、助眠尾段）。

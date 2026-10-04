@@ -16,6 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+os.environ["NO_DOTENV"] = "1"   # 不讀真的 .env：.env 優先，會蓋掉測試設的假 key（子程序也會繼承這個設定）
 import generate_episode as g  # noqa: E402
 
 EPISODE = ROOT / "episodes" / "ep01_moon.md"
@@ -72,6 +73,8 @@ def run(*args, mode="good", free="fake-free", paid="", assets=None, episode=EPIS
     """在暫存資料夾裡用假 SDK 執行主程式，回傳 (exit code, 輸出)。
     金鑰明確傳入，蓋過使用者 .env 裡的真金鑰（環境變數優先於 .env）。"""
     tmp = tempfile.mkdtemp()
+    if not assets and FAKE_ASSETS:
+        shutil.rmtree(FAKE_ASSETS / "shared", ignore_errors=True)
     try:
         env = dict(os.environ, PYTHONPATH=str(FAKE), FAKE_MODE=mode, PYTHONIOENCODING="utf-8",
                    GEMINI_API_KEY=free, GEMINI_API_KEY_PAID=paid,
@@ -87,23 +90,26 @@ def run(*args, mode="good", free="fake-free", paid="", assets=None, episode=EPIS
 
 class TestScript(unittest.TestCase):
     def test_parse(self):
-        lines = [i for i in g.parse_script(EPISODE) if i[0] == "line"]
-        self.assertEqual(len(lines), 46)
+        items, shared = g.expand_shared(g.parse_script(EPISODE))
+        lines = [i for i in items if i[0] == "line"]
+        self.assertEqual(len(lines), 48)
+        self.assertEqual(len(shared), 9)
         self.assertEqual({l[1] for l in lines}, {"旁白", "栗栗", "棉棉", "咕咕爺爺"})
 
     def test_directions_are_short_english(self):
         # 3.8 TTS 會把文字全部念出來，所以導演提示只能放在 style，而且要短
-        for _, sp, d, text in (i for i in g.parse_script(EPISODE) if i[0] == "line"):
+        items, _ = g.expand_shared(g.parse_script(EPISODE))
+        for _, sp, d, text in (i for i in items if i[0] == "line"):
             self.assertTrue(d.isascii(), f"導演提示不是英文：{d}")
             self.assertNotIn("{", text)
             self.assertNotIn("[停頓", text)
 
 
 class TestPipeline(unittest.TestCase):
-    def test_batch_mode_four_requests(self):
+    def test_batch_mode_requests(self):
         code, out = run()
         self.assertEqual(code, 0, out)
-        self.assertEqual(out.count("一次生成並切開"), 4, out)
+        self.assertEqual(out.count("一次生成並切開"), 5, out)   # 1 批共用 + 4 批角色
 
     def test_wav_response(self):
         code, out = run("--limit", "5", mode="wav")
@@ -141,15 +147,22 @@ class TestApiKeys(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         try:
             (tmp / ".env").write_text(
-                "# 註解\nT_ENV_A=abc  # 行尾註解\nT_ENV_B=\"x # y\"\nT_ENV_C=from-file\n",
+                "# 註解\nT_ENV_A=abc  # 行尾註解\nT_ENV_B=\"x # y\"\nT_ENV_C=from-file\nT_ENV_D=\n",
                 encoding="utf-8")
             os.environ["T_ENV_C"] = "from-shell"
-            g.load_env(tmp / ".env")
+            os.environ["T_ENV_D"] = "from-shell"
+            saved = os.environ.pop("NO_DOTENV", None)
+            try:
+                g.load_env(tmp / ".env")
+            finally:
+                if saved is not None:
+                    os.environ["NO_DOTENV"] = saved
             self.assertEqual(os.environ["T_ENV_A"], "abc")
             self.assertEqual(os.environ["T_ENV_B"], "x # y")
-            self.assertEqual(os.environ["T_ENV_C"], "from-shell")   # 已設的不覆蓋
+            self.assertEqual(os.environ["T_ENV_C"], "from-file")    # .env 優先
+            self.assertEqual(os.environ["T_ENV_D"], "from-shell")   # .env 留空的不覆蓋
         finally:
-            for k in ("T_ENV_A", "T_ENV_B", "T_ENV_C"):
+            for k in ("T_ENV_A", "T_ENV_B", "T_ENV_C", "T_ENV_D"):
                 os.environ.pop(k, None)
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -350,6 +363,17 @@ class TestSounds(unittest.TestCase):
         self.assertEqual(speech, [(0.5, 1.5), (end1 + 2, end1 + 3)])
         self.assertEqual(backgrounds, [("搖籃曲", 0.0, ep.seconds, None)])
 
+    def test_volume_marker_applies_until_next_marker(self):
+        # [音量 -6dB] 之後的台詞都變小聲，直到下一個 [音量]；不影響送出的內容（快取鍵）
+        items = self.parse("@旁白 一。\n[音量 -6dB]\n@旁白 二。\n@旁白 三。\n[音量 0dB]\n@旁白 四。\n")
+        self.assertEqual([i for i in items if i[0] == "vol"], [("vol", -6.0), ("vol", 0.0)])
+        lines = [k for k, i in enumerate(items) if i[0] == "line"]
+        ep, _, _, speech = g.assemble(items, {k: g.Audio(tone(1), R) for k in lines}, R, None)
+        a = array("h", ep.pcm)
+        levels = [rms_db(a[int((s + 0.1) * R):int((e - 0.1) * R)]) for s, e in speech]
+        for got, want in zip(levels, [0, -6, -6, 0]):
+            self.assertAlmostEqual(got - levels[0], want, delta=0.1)
+
     def test_trim_replaces_line_tail(self):
         # [音效 吸氣1 剪 0.4秒]：剪掉前一句的句間空白和句尾 0.4 秒（被切斷的半口氣），再接上音效
         items = self.parse("@旁白 吸氣。\n[音效 吸氣1 剪 0.4秒]\n")
@@ -457,6 +481,31 @@ class TestSounds(unittest.TestCase):
             self.assertAlmostEqual(loudness, float(g.LOUDNESS), delta=1.0)
             self.assertLessEqual(peak, -1.0)
         finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    @unittest.skipUnless(g.find_ffmpeg(), "需要 4.4 以上的 ffmpeg")
+    def test_find_ffmpeg_skips_old_version_first_on_path(self):
+        # PATH 最前面的 ffmpeg 不能用（像 miniconda 附的 4.3）：要略過它，用後面能用的那個
+        tmp = Path(tempfile.mkdtemp())
+        name = "ffmpeg.bat" if os.name == "nt" else "ffmpeg"
+        (tmp / name).write_text("@exit /b 1\n" if os.name == "nt" else "#!/bin/sh\nexit 1\n")
+        (tmp / name).chmod(0o755)
+        old = os.environ.copy()
+        try:
+            os.environ.pop("FFMPEG", None)
+            os.environ["PATH"] = str(tmp) + os.pathsep + os.environ["PATH"]
+            g.find_ffmpeg.cache_clear()
+            exe = g.find_ffmpeg()
+            self.assertIsNotNone(exe)
+            self.assertNotEqual(Path(exe).parent, tmp)
+            os.environ["FFMPEG"] = str(tmp / name)   # 指定了不能用的就停下，不自己換
+            g.find_ffmpeg.cache_clear()
+            with self.assertRaises(SystemExit):
+                g.find_ffmpeg()
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+            g.find_ffmpeg.cache_clear()
             shutil.rmtree(tmp, ignore_errors=True)
 
     def test_missing_asset_stops_before_api(self):

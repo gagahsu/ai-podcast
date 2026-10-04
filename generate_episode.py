@@ -36,8 +36,9 @@ for _stream in (sys.stdout, sys.stderr):
 # ---- 設定 ----------------------------------------------------------------
 
 def load_env(path):
-    """讀 KEY=VALUE 格式的 .env；已經在環境變數裡的不覆蓋（PowerShell 設的優先）。"""
-    if not path.exists():
+    """讀 KEY=VALUE 格式的 .env，**.env 優先**：有填值的會蓋掉環境變數（Windows 使用者環境變數裡的舊 key
+    曾經默默蓋掉 .env 的新 key）。.env 裡留空的不覆蓋。設 NO_DOTENV=1 就不讀（測試用）。"""
+    if os.environ.get("NO_DOTENV") == "1" or not path.exists():
         return
     for raw in path.read_text(encoding="utf-8-sig").splitlines():
         line = raw.strip()
@@ -48,7 +49,10 @@ def load_env(path):
             value = value[1:-1]
         else:
             value = value.split(" #", 1)[0].strip()  # 允許行尾註解
-        os.environ.setdefault(key, value)
+        if value:
+            os.environ[key] = value
+        else:
+            os.environ.setdefault(key, value)
 
 
 load_env(Path(__file__).resolve().parent / ".env")
@@ -68,6 +72,7 @@ CHARACTERS = {
 }
 
 DEFAULT_RATE = 24000  # Gemini TTS 輸出的取樣率（若回傳 WAV，會以檔頭為準）
+API_TIMEOUT_SEC = 300  # 一個批次的請求最多等多久（整批旁白約 2 分鐘的音訊，正常一兩分鐘內就回來）
 LINE_GAP_SEC = 0.6    # 每句之間的預設間隔
 LOUDNESS = "-16"      # Podcast 常見的響度標準（LUFS）
 PEAK_LIMIT = 0.79     # 峰值上限（約 -2 dBFS，留給 mp3 編碼的餘裕）
@@ -140,6 +145,7 @@ SFX_RE = re.compile(r"^\[音效\s+(\S+?)(\s+疊)?(?:\s+剪\s*(?:([\d.]+)\s*秒|(
 BG_RE = re.compile(r"^\[背景\s+(.+?)\]$")
 BG_STOP_RE = re.compile(r"^停(?:\s+([\d.]+)\s*秒)?$")
 SHARED_RE = re.compile(r"^\[共用\s+(\S+)\]$")
+VOL_RE = re.compile(r"^\[音量\s*([+-]?[\d.]+)\s*dB\]$", re.I)
 
 # 共用片段：每集都一樣的段落（開場、放鬆、咕咕爺爺登場）寫在 SHARED_SCRIPT，腳本用 [共用 名稱] 引用。
 # 共用的台詞另成一批生成，快取放在 SHARED_DIR（進版控）：每集送出的內容相同，只有第一次花額度，
@@ -150,7 +156,7 @@ SHARED_DIR = Path(os.environ.get("SHARED_DIR") or ASSETS_DIR / "shared")
 
 def parse_script(path):
     """回傳項目清單：("line", 角色, 導演提示, 台詞)、("pause", 秒)、("sfx", 名稱, 是否疊上去)、
-    ("bg", (名稱, …), 淡出秒數或 None)、("shared", 名稱)。背景名稱是空的 tuple 代表 [背景 停]。"""
+    ("bg", (名稱, …), 淡出秒數或 None)、("shared", 名稱)、("vol", dB)。背景名稱是空的 tuple 代表 [背景 停]。"""
     return _parse_lines(Path(path).read_text(encoding="utf-8").splitlines(), Path(path).name)
 
 
@@ -163,6 +169,8 @@ def _parse_lines(lines, where, first_line=1):
             items.append(("shared", m.group(1)))
         elif m := PAUSE_RE.match(line):
             items.append(("pause", float(m.group(1))))
+        elif m := VOL_RE.match(line):
+            items.append(("vol", float(m.group(1))))
         elif m := SFX_RE.match(line):
             if m.group(1) not in SOUNDS:
                 sys.exit(f"{n} 行：未知音效「{m.group(1)}」，請在 SOUNDS 裡新增")
@@ -280,7 +288,11 @@ class Gemini:
     def __init__(self, genai, free_key, paid_key):
         self._genai, self._paid_key = genai, paid_key
         self.on_paid = not free_key
-        self.client = genai.Client(api_key=free_key or paid_key)
+        self.client = self._client(free_key or paid_key)
+
+    def _client(self, key):
+        # 不設逾時的話，伺服器斷線時程式會一直等下去（ep06 卡了 10 分鐘以上）
+        return self._genai.Client(api_key=key, http_options={"timeout": API_TIMEOUT_SEC * 1000})
 
     @property
     def interactions(self):
@@ -289,7 +301,7 @@ class Gemini:
     def switch_to_paid(self):
         if self.on_paid or not self._paid_key:
             return False
-        self.client = self._genai.Client(api_key=self._paid_key)
+        self.client = self._client(self._paid_key)
         self.on_paid = True
         return True
 
@@ -319,6 +331,10 @@ def _call_api(client, contents, voice, min_interval):
                 generation_config={"speech_config": [{"voice": voice}]},
             )
         except Exception as e:  # Interactions API 的錯誤類別跟舊 API 不同，用狀態碼判斷
+            if "timeout" in type(e).__name__.lower():
+                # 不自動重試：伺服器可能已經生成完、只是沒送回來，這次可能已算進額度
+                sys.exit(f"\n等了 {API_TIMEOUT_SEC} 秒沒有回應（{type(e).__name__}）。已生成的批次都快取在 "
+                         "build/segments/；這一批可能已經算進今天的額度，要重跑請自己決定。")
             code = getattr(e, "status_code", None) or getattr(e, "code", None)
             if code != 429:
                 raise
@@ -752,13 +768,54 @@ def check_sounds(items, bgm):
         print(f"  {name}：{path}" + ("" if path.exists() else "（找不到）"))
         if not path.exists():
             missing.append(str(path))
-    if not shutil.which("ffmpeg"):
+    if not find_ffmpeg():
         missing.append("ffmpeg")
     return missing
 
 
+# 試跑一次本程式用到、舊版 ffmpeg 沒有的功能（ebur128 framelog=quiet、amix normalize 都是 4.4 以後才有）
+FFMPEG_PROBE = ["-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono:d=0.2",
+                "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono:d=0.2", "-filter_complex",
+                "[0:a][1:a]amix=inputs=2:duration=first:normalize=0,adelay=10:all=1,"
+                "asetnsamples=n=480:p=0,volume='1':eval=frame,acompressor,aresample=96000,"
+                "alimiter=level=false,ebur128=framelog=quiet:peak=true",
+                "-c:a", "libmp3lame", "-f", "null", "-"]
+
+
+def _ffmpeg_works(exe):
+    try:
+        p = subprocess.run([exe, "-hide_banner", "-nostats", *FFMPEG_PROBE],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return p.returncode == 0
+
+
+@lru_cache(maxsize=None)
+def find_ffmpeg():
+    """找一個功能夠用的 ffmpeg，找不到回傳 None。
+    電腦上常有好幾個 ffmpeg（例如 miniconda 附的 4.3），PATH 順序不同就會拿到舊版、跑到一半才失敗，
+    所以依 PATH 順序逐一試跑，用第一個能用的。.env 或環境變數設 FFMPEG＝完整路徑 就只用那一個。"""
+    if exe := os.environ.get("FFMPEG", "").strip():
+        if _ffmpeg_works(exe):
+            return exe
+        sys.exit(f"FFMPEG 指定的 {exe} 不能用（找不到，或版本太舊，需要 4.4 以上）")
+    skipped = []
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        if not (exe := shutil.which("ffmpeg", path=d)) or exe in skipped:
+            continue
+        if _ffmpeg_works(exe):
+            if skipped:
+                print(f"使用 ffmpeg：{exe}（略過不支援的舊版：{'、'.join(skipped)}）")
+            return exe
+        skipped.append(exe)
+    if skipped:
+        print(f"找到的 ffmpeg 都太舊（需要 4.4 以上）：{'、'.join(skipped)}")
+    return None
+
+
 def run_ffmpeg(args):
-    p = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-y", *args],
+    p = subprocess.run([find_ffmpeg() or "ffmpeg", "-hide_banner", "-nostats", "-y", *args],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if p.returncode:
         sys.exit(f"ffmpeg 執行失敗：\n{p.stderr[-1500:]}")
@@ -780,7 +837,7 @@ def gain_db(path, rel_db):
 def decode_sound(name, rate):
     """把插入型音效解碼成跟人聲相同格式的 PCM，並調好音量。"""
     path = sound_path(name)
-    p = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path),
+    p = subprocess.run([find_ffmpeg() or "ffmpeg", "-v", "error", "-i", str(path),
                         "-af", f"volume={gain_db(path, SOUNDS[name][1]):.2f}dB",
                         "-ac", "1", "-ar", str(rate), "-f", "s16le", "-"], capture_output=True)
     if p.returncode:
@@ -829,6 +886,13 @@ def trailing_breath(audio):
     return secs, "找到句尾氣音"
 
 
+def scale(audio, db):
+    """把一句台詞調大或調小 db 分貝（超過範圍的取樣點夾住，不會繞回去變爆音）。"""
+    k = 10 ** (db / 20)
+    a = array("h", audio.pcm)
+    return Audio(array("h", (max(-32768, min(32767, round(v * k))) for v in a)).tobytes(), audio.rate)
+
+
 def assemble(items, rendered, rate, insert_pcm):
     """把台詞、停頓、插入型音效接成人聲軌。
     同時記下疊加音效 [(秒, 名稱)]、背景 [(名稱, 開始秒, 停止秒或 None, 淡出秒數或 None)]、
@@ -836,6 +900,7 @@ def assemble(items, rendered, rate, insert_pcm):
     pcm = bytearray()
     overlays, backgrounds, speech = [], [], []
     current = ((), 0.0)  # 正在播的背景：(名稱們, 開始秒數)
+    vol = 0.0             # [音量 N dB]：之後的台詞都調這麼多，直到下一個 [音量]（TTS 有時把該輕的句子念得比較大聲）
 
     def now():
         return len(pcm) / 2 / rate
@@ -845,8 +910,8 @@ def assemble(items, rendered, rate, insert_pcm):
             pcm += b"\x00\x00" * int(rate * item[1])
         elif item[0] == "line":
             start = now()
-            pcm += rendered[i].pcm
-            last_line = rendered[i]
+            last_line = rendered[i] if not vol else scale(rendered[i], vol)
+            pcm += last_line.pcm
             speech.append((start, now()))
             pcm += b"\x00\x00" * int(rate * LINE_GAP_SEC)
         elif item[0] == "sfx" and item[2]:
@@ -860,6 +925,8 @@ def assemble(items, rendered, rate, insert_pcm):
                 del pcm[len(pcm) - 2 * (int(rate * LINE_GAP_SEC) + int(rate * trim)):]
                 speech[-1] = (speech[-1][0], min(speech[-1][1], now()))
             pcm += insert_pcm(item[1])
+        elif item[0] == "vol":
+            vol = item[1]
         elif item[0] == "bg":
             names, start = current
             backgrounds += [(name, start, now(), item[2]) for name in names]
@@ -1095,8 +1162,8 @@ def main():
     episode.save(wav_path)
     print(f"已輸出 {wav_path}（{episode.seconds / 60:.1f} 分鐘）")
 
-    if not shutil.which("ffmpeg"):
-        print("找不到 ffmpeg，略過 mp3 輸出與響度標準化")
+    if not find_ffmpeg():
+        print("找不到能用的 ffmpeg（需要 4.4 以上），略過 mp3 輸出與響度標準化")
         return
 
     tracks = background_tracks(backgrounds, episode.seconds, args.bgm)
