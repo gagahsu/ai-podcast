@@ -12,7 +12,23 @@
 | 放鬆音樂 | `wandering.wav` | CC0 | Andrewkn | [Freesound #455855](https://freesound.org/people/Andrewkn/sounds/455855/) | 〈Wandering〉，柔和鋼琴加長音墊，4:49。放鬆引導段（吸氣吐氣）用。**Freesound 需登入才能下載** |
 | 夜晚蟲鳴 | `night_crickets.wav` | CC0 | Defelozedd94 | [Freesound #522298](https://freesound.org/people/Defelozedd94/sounds/522298/) | 夏夜花園蟲鳴，2:49。**Freesound 需登入才能下載** |
 | 河水 | `river_flowing.wav` | CC0 | Tom_Kaszuba | [Freesound #660265](https://freesound.org/people/Tom_Kaszuba/sounds/660265/) | 小河流水，1:07（48kHz/24-bit）。分析過沒有鳥叫等突發聲，音量很平穩。**Freesound 需登入才能下載** |
+| 夜晚蟲鳴慢 | `night_crickets_slow.wav` | CC0 | Defelozedd94 | 由 `night_crickets.wav` 自製（見下方） | 放慢到 0.7 倍，4:01。助眠尾段用（ep04 起） |
+| 河水慢 | `river_flowing_slow.wav` | CC0 | Tom_Kaszuba | 由 `river_flowing.wav` 自製（見下方） | 放慢到 0.7 倍，1:36。助眠尾段用（ep04 起） |
 | 貓頭鷹 | `scops_owl.ogg` | Public domain | Raghu | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Otus_sunia.ogg) | 東方角鴞的輕聲鳴叫，10 秒 |
+
+## 放慢的環境音（自製，不進版控）
+
+助眠尾段用比較慢、比較安靜的蟲鳴和流水。下載原檔後，在 `assets/` 裡用 ffmpeg 產生：
+
+```
+ffmpeg -i night_crickets.wav -af atempo=0.7 -c:a pcm_s16le night_crickets_slow.wav
+ffmpeg -i river_flowing.wav -af atempo=0.7 -c:a pcm_s24le river_flowing_slow.wav
+```
+
+使用者比較過這些版本的 60 秒試聽檔（響度都對齊到 −30 LUFS），最後選了 atempo：
+- `asetrate` 0.75 倍與 0.6 倍：放慢，音高也跟著變低
+- `rubberband` 0.7 倍：放慢，音高不變
+- `atempo` 0.7 倍：放慢，音高不變
 
 ## 旁白的呼吸聲（自製，進版控）
 

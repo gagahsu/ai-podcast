@@ -80,6 +80,9 @@ SOUNDS = {
     "放鬆音樂": ("wandering.wav", -18),
     "夜晚蟲鳴": ("night_crickets.wav", -24),
     "河水": ("river_flowing.wav", -24),
+    # 助眠尾段用：上面兩個用 atempo 放慢到 0.7 倍（做法見 assets/SOURCES.md）
+    "夜晚蟲鳴慢": ("night_crickets_slow.wav", -24),
+    "河水慢": ("river_flowing_slow.wav", -24),
     "貓頭鷹": ("scops_owl.ogg", -18),  # 疊在台詞底下，不會被 ducking，所以小聲一點
     # 從 ep02 旁白配音切出來再拉長的呼吸聲（做法見 assets/SOURCES.md）。None = 保持原音量，本來就跟人聲一樣大
     "吸氣1": ("narrator_inhale_1.wav", None),
@@ -117,22 +120,36 @@ PAUSE_RE = re.compile(r"^\[停頓\s*([\d.]+)\s*秒\]$")
 SFX_RE = re.compile(r"^\[音效\s+(\S+?)(\s+疊)?(?:\s+剪\s*(?:([\d.]+)\s*秒|(自動)))?\]$")
 BG_RE = re.compile(r"^\[背景\s+(.+?)\]$")
 BG_STOP_RE = re.compile(r"^停(?:\s+([\d.]+)\s*秒)?$")
+SHARED_RE = re.compile(r"^\[共用\s+(\S+)\]$")
+
+# 共用片段：每集都一樣的段落（開場、放鬆、咕咕爺爺登場）寫在 SHARED_SCRIPT，腳本用 [共用 名稱] 引用。
+# 共用的台詞另成一批生成，快取放在 SHARED_DIR（進版控）：每集送出的內容相同，只有第一次花額度，
+# 而且每集的招牌段落聲音都一樣。
+SHARED_SCRIPT = Path(__file__).resolve().parent / "episodes" / "shared.md"
+SHARED_DIR = Path(os.environ.get("SHARED_DIR") or ASSETS_DIR / "shared")
 
 
 def parse_script(path):
     """回傳項目清單：("line", 角色, 導演提示, 台詞)、("pause", 秒)、("sfx", 名稱, 是否疊上去)、
-    ("bg", (名稱, …), 淡出秒數或 None)。背景名稱是空的 tuple 代表 [背景 停]。"""
+    ("bg", (名稱, …), 淡出秒數或 None)、("shared", 名稱)。背景名稱是空的 tuple 代表 [背景 停]。"""
+    return _parse_lines(Path(path).read_text(encoding="utf-8").splitlines(), Path(path).name)
+
+
+def _parse_lines(lines, where, first_line=1):
     items = []
-    for n, raw in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+    for n, raw in enumerate(lines, first_line):
+        n = f"{where} 第 {n}"
         line = raw.strip()
-        if m := PAUSE_RE.match(line):
+        if m := SHARED_RE.match(line):
+            items.append(("shared", m.group(1)))
+        elif m := PAUSE_RE.match(line):
             items.append(("pause", float(m.group(1))))
         elif m := SFX_RE.match(line):
             if m.group(1) not in SOUNDS:
-                sys.exit(f"第 {n} 行：未知音效「{m.group(1)}」，請在 SOUNDS 裡新增")
+                sys.exit(f"{n} 行：未知音效「{m.group(1)}」，請在 SOUNDS 裡新增")
             trim = "自動" if m.group(4) else float(m.group(3)) if m.group(3) else 0.0
             if trim and (m.group(2) or not items or items[-1][0] != "line"):
-                sys.exit(f"第 {n} 行：「剪」只能用在緊接著台詞的插入型音效（剪掉那句台詞的句尾）")
+                sys.exit(f"{n} 行：「剪」只能用在緊接著台詞的插入型音效（剪掉那句台詞的句尾）")
             items.append(("sfx", m.group(1), bool(m.group(2)), trim))
         elif m := BG_RE.match(line):
             if stop := BG_STOP_RE.match(m.group(1)):
@@ -141,14 +158,49 @@ def parse_script(path):
             names = tuple(m.group(1).split())   # 可以同時播多個，例如 [背景 夜晚蟲鳴 河水]
             for name in names:
                 if name not in SOUNDS:
-                    sys.exit(f"第 {n} 行：未知背景「{name}」，請在 SOUNDS 裡新增")
+                    sys.exit(f"{n} 行：未知背景「{name}」，請在 SOUNDS 裡新增")
             items.append(("bg", names, None))
         elif m := LINE_RE.match(line):
             speaker, direction, text = m.group(1), (m.group(2) or "").strip(), m.group(3).strip()
             if speaker not in CHARACTERS:
-                sys.exit(f"第 {n} 行：未知角色「{speaker}」，請在 CHARACTERS 裡新增")
+                sys.exit(f"{n} 行：未知角色「{speaker}」，請在 CHARACTERS 裡新增")
             items.append(("line", speaker, direction, text))
     return items
+
+
+def shared_sections():
+    """SHARED_SCRIPT 裡的「## 名稱」段落 → 項目清單。"""
+    sections, name, start, buf = {}, None, 0, []
+    lines = SHARED_SCRIPT.read_text(encoding="utf-8").splitlines() + ["## "]
+    for n, raw in enumerate(lines, 1):
+        if raw.startswith("## "):
+            if name:
+                sections[name] = _parse_lines(buf, SHARED_SCRIPT.name, start)
+            name, start, buf = raw[3:].strip(), n + 1, []
+        elif name:
+            buf.append(raw)
+    return sections
+
+
+def expand_shared(items):
+    """把 [共用 名稱] 換成共用片段的內容。回傳 (新的項目清單, 共用台詞的位置)。"""
+    if not any(it[0] == "shared" for it in items):
+        return items, set()
+    sections = shared_sections()
+    out, shared = [], set()
+    for it in items:
+        if it[0] != "shared":
+            out.append(it)
+            continue
+        if it[1] not in sections:
+            sys.exit(f"未知的共用片段「{it[1]}」，{SHARED_SCRIPT.name} 裡有：{'、'.join(sections)}")
+        for sub in sections[it[1]]:
+            if sub[0] == "shared":
+                sys.exit(f"共用片段「{it[1]}」裡不能再引用共用片段")
+            if sub[0] == "line":
+                shared.add(len(out))
+            out.append(sub)
+    return out, shared
 
 
 def style_for(speaker, direction):
@@ -376,6 +428,8 @@ def split_on_silence(audio, texts):
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
 WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")   # 有裝好 CUDA 函式庫可設成 cuda
 MAX_DIFF_RATIO = 0.15  # 切出來的每句，辨識內容跟台詞最多可以差幾成的字（容許辨識錯字）
+# 靜音切開後也用語音辨識逐句核對內容。離線測試用合成音訊（聽不出字），用 ASR_CHECK=0 關掉
+ASR_CHECK = os.environ.get("ASR_CHECK", "1") != "0"
 PUNCT_RE = re.compile(r"[\s，。、！？；：「」『』（）…—,.!?;:'\"()\-]+")
 _whisper = None
 
@@ -491,6 +545,33 @@ def align_cuts(texts, chars):
     return (bounds, line_times), None
 
 
+def _content_mismatch(n, heard_text, text):
+    """切出來的第 n 句，辨識內容跟台詞差太多就回傳原因（多一截、少一截、錯位都會被抓到）。"""
+    from difflib import SequenceMatcher
+    heard, want = _sounds(heard_text), _sounds(_norm(text))
+    same = sum(m.size for m in SequenceMatcher(None, want, heard, autojunk=False).get_matching_blocks())
+    diff = max(len(want), len(heard)) - same   # 對不上的字數（錯字算一個）
+    if diff > 2 + MAX_DIFF_RATIO * len(want):
+        return f"第 {n} 句切出來的內容跟台詞差了 {diff} 個字（聽到「{heard_text[:24]}」）"
+    return None
+
+
+def check_pieces(pieces, texts):
+    """逐句辨識切好的音訊，跟台詞比對。靜音切割只看句數對不對，模型多念一句、
+    又剛好有兩句黏在一起時句數會對上，卻整段錯位（ep04 旁白實際發生過），所以一定要核對。
+    回傳 None（沒問題）或原因。"""
+    if not ASR_CHECK:
+        return None
+    try:
+        for n, (piece, text) in enumerate(zip(pieces, texts), 1):
+            heard = "".join(c for c, _, _ in transcribe_chars(piece))
+            if why := _content_mismatch(n, heard, text):
+                return why
+    except ImportError:
+        print("    注意：沒有安裝 faster-whisper，靜音切開的句子沒有核對內容，試聽時要特別注意有沒有錯位")
+    return None
+
+
 def split_with_whisper(audio, texts):
     """用語音辨識找每句的交界，再在交界附近最長的靜音處下刀。"""
     try:
@@ -534,21 +615,46 @@ def split_with_whisper(audio, texts):
         if b <= a:
             return None, f"第 {i // 2 + 1} 句切出來是空的"
         # 檢查：切出來這段裡辨識到的字，要跟這句台詞幾乎一樣（多一截、少一截都會被抓到）
-        from difflib import SequenceMatcher
         heard_text = "".join(c for c, st, en in chars if a / rate <= (st + en) / 2 <= b / rate)
-        heard, want = _sounds(heard_text), _sounds(_norm(texts[i // 2]))
-        same = sum(m.size for m in SequenceMatcher(None, want, heard, autojunk=False).get_matching_blocks())
-        diff = max(len(want), len(heard)) - same   # 對不上的字數（錯字算一個）
-        if diff > 2 + MAX_DIFF_RATIO * len(want):
-            return None, (f"第 {i // 2 + 1} 句切出來的內容跟台詞差了 {diff} 個字"
-                          f"（聽到「{heard_text[:24]}」）")
+        if why := _content_mismatch(i // 2 + 1, heard_text, texts[i // 2]):
+            return None, why
         pieces.append(Audio(audio.pcm[a * 2:b * 2], rate))
     return pieces, None
 
 
-def synthesize_batch(client, speaker, entries, cache_dir, min_interval):
+def manual_cuts(audio, cuts_path, count):
+    """人工切點：批次音檔旁的 <批次檔名>.cuts.txt，每行一句「開始秒 結束秒」（# 之後是註解）。
+    一行也可以寫好幾段「開始 結束 開始 結束 …」，接起來當一句，用來剪掉句中不要的聲音
+    （例如 <exhales> 念出來的短吐氣聲）。
+    用在模型念錯（例如同一句念兩次）、自動切不開，但音檔本身可以用的時候，不必再花額度。
+    行數跟句數不合、秒數超出音檔或順序顛倒就停下來，不猜。"""
+    lines = []
+    for raw in cuts_path.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#")[0].strip()
+        if line:
+            try:
+                nums = [float(x) for x in line.split()]
+            except ValueError:
+                nums = []
+            if not nums or len(nums) % 2:
+                sys.exit(f"\n{cuts_path}：看不懂這一行「{raw}」，格式是「開始秒 結束秒」（可以寫好幾組）。")
+            lines.append(nums)
+    if len(lines) != count:
+        sys.exit(f"\n{cuts_path}：寫了 {len(lines)} 句，但這批有 {count} 句。")
+    pieces = []
+    for i, nums in enumerate(lines, 1):
+        if nums != sorted(nums) or len(set(nums)) != len(nums) or not 0 <= nums[0] or nums[-1] > audio.seconds + 0.01:
+            sys.exit(f"\n{cuts_path}：第 {i} 句的秒數 {nums} 不合理（要由小到大，音檔長 {audio.seconds:.2f} 秒）。")
+        pcm = b"".join(audio.pcm[int(a * audio.rate) * 2:int(b * audio.rate) * 2]
+                       for a, b in zip(nums[::2], nums[1::2]))
+        pieces.append(Audio(pcm, audio.rate))
+    return pieces
+
+
+def synthesize_batch(client, speaker, entries, cache_dir, min_interval, label=None):
     """entries: [(導演提示, 台詞), ...]。成功回傳每句的 Audio，失敗回傳 None。"""
     voice, _ = CHARACTERS[speaker]
+    label = label or speaker
     contents = [
         (text + (BATCH_SEPARATOR if i < len(entries) - 1 else ""), style_for(speaker, d))
         for i, (d, text) in enumerate(entries)
@@ -558,7 +664,7 @@ def synthesize_batch(client, speaker, entries, cache_dir, min_interval):
     if cached:
         audio = Audio.load(path)
     else:
-        audio = request_audio(client, contents, voice, min_interval, f"{speaker} 的 {len(entries)} 句")
+        audio = request_audio(client, contents, voice, min_interval, f"{label} 的 {len(entries)} 句")
         audio.save(path)
     tag = "（快取）" if cached else ""
 
@@ -566,24 +672,36 @@ def synthesize_batch(client, speaker, entries, cache_dir, min_interval):
     if audio.seconds > limit:
         # 這種情況改用逐句模式通常也一樣，而且會燒掉大量額度，所以直接停下來
         sys.exit(
-            f"\n{tag}{speaker}：生成了 {audio.seconds:.0f} 秒，遠超過預期（約 "
+            f"\n{tag}{label}：生成了 {audio.seconds:.0f} 秒，遠超過預期（約 "
             f"{expected_seconds([t for _, t in entries]):.0f} 秒），模型可能把設定也念出來了。\n"
             f"請確認使用的是 gemini-3.8 系列的 TTS 模型（目前：{MODEL}）。\n"
             f"原始音檔在 {path}，可以聽聽看它多念了什麼；確認原因後刪掉這個檔再重跑。"
         )
     texts = [t for _, t in entries]
+    cuts_path = path.with_suffix(".cuts.txt")
+    if cuts_path.exists():
+        pieces = manual_cuts(audio, cuts_path, len(entries))
+        if bad := check_pieces(pieces, texts):   # 人工切點也要核對，秒數寫錯一樣會錯位
+            sys.exit(f"\n{cuts_path}：照人工切點切出來的內容對不上台詞：{bad}")
+        secs = "、".join(f"{p.seconds:.1f}" for p in pieces)
+        print(f"  {tag}（人工切點）{label}：{len(entries)} 句照 {cuts_path.name} 切開（各 {secs} 秒）")
+        return pieces
     pieces, why = split_on_silence(audio, texts)
+    if pieces is not None and len(entries) > 1 and (bad := check_pieces(pieces, texts)):
+        print(f"  {tag}{label}：靜音切開的內容對不上台詞：{bad}")
+        pieces, why = None, "靜音切開了，但內容對不上"
     if pieces is None and len(entries) > 1:
-        print(f"  {tag}{speaker}：只靠停頓切不開（{why.split('（')[0]}），改用語音辨識找切點")
+        print(f"  {tag}{label}：只靠停頓切不開（{why.split('（')[0]}），改用語音辨識找切點")
         pieces, why = split_with_whisper(audio, texts)
         if pieces is not None:
             why = None
             tag += "（語音辨識）"
     if pieces is None:
-        print(f"  {tag}{speaker}：{len(entries)} 句一次生成，但切不開：{why}")
+        print(f"  {tag}{label}：{len(entries)} 句一次生成，但切不開：{why}")
+        print(f"    批次音檔：{path}（聽過、音檔本身可用的話，可以寫 {cuts_path.name} 人工指定切點）")
         return None
     secs = "、".join(f"{p.seconds:.1f}" for p in pieces)
-    print(f"  {tag}{speaker}：{len(entries)} 句一次生成並切開（各 {secs} 秒）")
+    print(f"  {tag}{label}：{len(entries)} 句一次生成並切開（各 {secs} 秒）")
     return pieces
 
 
@@ -853,7 +971,7 @@ def main():
         inspect_batches()
         return
 
-    items = parse_script(args.script)
+    items, shared = expand_shared(parse_script(args.script))
     lines = [i for i in items if i[0] == "line"]
     pauses = sum(i[1] for i in items if i[0] == "pause")
     est = expected_seconds([i[3] for i in lines]) + pauses + LINE_GAP_SEC * len(lines)
@@ -862,6 +980,8 @@ def main():
           f"預估長度約 {est / 60:.1f} 分鐘")
     for speaker in CHARACTERS:
         print(f"  {speaker}：{sum(1 for i in lines if i[1] == speaker)} 句")
+    if shared:
+        print(f"  其中 {len(shared)} 句是共用片段（快取在 {SHARED_DIR}，生成過就不再花額度）")
 
     if args.dry_run:
         if missing := check_sounds(items, args.bgm):
@@ -896,6 +1016,7 @@ def main():
     if args.limit:
         cut = [i for i, it in enumerate(items) if it[0] == "line"][: args.limit][-1]
         items = items[: cut + 2]
+        shared = {i for i in shared if i <= cut}
         stem += f"_first{args.limit}"
     # 素材有問題要在呼叫 API 之前就停下，不然額度花了卻組不成一集
     if missing := check_sounds(items, args.bgm):
@@ -904,36 +1025,43 @@ def main():
         measure_lufs(path)
     min_interval = 60 / args.rpm + 1
     line_idx = [i for i, it in enumerate(items) if it[0] == "line"]
-    speakers = list(dict.fromkeys(items[i][1] for i in line_idx))
+    # 一批 = (角色, 是否共用)；共用的台詞自成一批，快取放 SHARED_DIR
+    groups = list(dict.fromkeys((items[i][1], i in shared) for i in line_idx))
+    if shared:
+        SHARED_DIR.mkdir(parents=True, exist_ok=True)
     if args.per_line:
         print(f"逐句模式：最多 {len(line_idx)} 次請求（已快取的會略過）")
     else:
-        print(f"分批模式：每個角色一次請求，共 {len(speakers)} 次")
+        print(f"分批模式：每個角色一次請求，共 {len(groups)} 批（已快取的不花額度）")
 
     rendered = {}
     failed = []
     if not args.per_line:
-        for sp in speakers:
-            idxs = [i for i in line_idx if items[i][1] == sp]
-            pieces = synthesize_batch(client, sp, [items[i][2:] for i in idxs], cache, min_interval)
+        for sp, is_shared in groups:
+            idxs = [i for i in line_idx if items[i][1] == sp and (i in shared) == is_shared]
+            pieces = synthesize_batch(client, sp, [items[i][2:] for i in idxs],
+                                      SHARED_DIR if is_shared else cache, min_interval,
+                                      label=f"{sp}（共用）" if is_shared else sp)
             if pieces:
                 rendered.update(zip(idxs, pieces))
             elif args.fallback:
                 print(f"    {sp} 的台詞改用逐句模式生成（會多花 {len(idxs)} 次請求）")
             else:
-                failed.append(sp)
+                failed.append(f"{sp}（共用）" if is_shared else sp)
         if failed:
             sys.exit(
                 f"\n{'、'.join(failed)} 切不開，先停下來，不自動改成逐句生成（避免用光額度）。\n"
                 "批次音檔已存在 build/segments/，可以用 --inspect 看停頓長度；\n"
-                "要改成逐句生成切不開的角色，請加上 --fallback 再跑一次（其他角色會直接用快取）。"
+                "要改成逐句生成切不開的角色，請加上 --fallback 再跑一次（其他角色會直接用快取）；\n"
+                "或在批次音檔旁寫 .cuts.txt 人工指定每句的開始、結束秒數（不花額度）。"
             )
 
     for n, i in enumerate(line_idx, 1):
         if i in rendered:
             continue
         _, speaker, direction, text = items[i]
-        audio, cached = synthesize(client, speaker, direction, text, cache, min_interval)
+        audio, cached = synthesize(client, speaker, direction, text,
+                                   SHARED_DIR if i in shared else cache, min_interval)
         print(f"[{n}/{len(line_idx)}] {'（快取）' if cached else ''}{speaker}：{text[:20]}…")
         rendered[i] = audio
 

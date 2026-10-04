@@ -75,7 +75,8 @@ def run(*args, mode="good", free="fake-free", paid="", assets=None, episode=EPIS
     try:
         env = dict(os.environ, PYTHONPATH=str(FAKE), FAKE_MODE=mode, PYTHONIOENCODING="utf-8",
                    GEMINI_API_KEY=free, GEMINI_API_KEY_PAID=paid,
-                   ASSETS_DIR=str(assets or FAKE_ASSETS))
+                   ASSETS_DIR=str(assets or FAKE_ASSETS),
+                   ASR_CHECK="0")   # 合成音訊聽不出字，不做內容核對（另有單元測試）
         p = subprocess.run([sys.executable, str(ROOT / "generate_episode.py"), str(episode),
                             "--rpm", "6000", *args], cwd=tmp, env=env,
                            capture_output=True, text=True, encoding="utf-8")
@@ -226,6 +227,84 @@ class TestWhisperCheck(unittest.TestCase):
         self.assertNotEqual(g._sounds("栗栗"), g._sounds("棉棉"))
         pieces, _ = self.split("月亮離我們非常遠", "你們先看看路邊這朵小白花")
         self.assertIsNone(pieces)
+
+
+class TestSilenceSplitContentCheck(unittest.TestCase):
+    """靜音切開、句數也對，但內容錯位（模型多念一句又有兩句黏在一起）時，要被擋下來。"""
+
+    TEXTS = ["晚安，栗栗。", "你們先看看路邊這朵小白花"]
+
+    def check(self, heard):
+        pieces = [g.Audio(tone(1), R), g.Audio(tone(1), R)]
+        it = iter(heard)
+        old, g.transcribe_chars = g.transcribe_chars, lambda audio: [(c, 0.0, 0.1) for c in next(it)]
+        old_flag, g.ASR_CHECK = g.ASR_CHECK, True
+        try:
+            return g.check_pieces(pieces, self.TEXTS)
+        finally:
+            g.transcribe_chars, g.ASR_CHECK = old, old_flag
+
+    def test_matching_content_passes(self):
+        self.assertIsNone(self.check(["晚安莉莉", "你们先看看路边这朵小白花"]))
+
+    def test_shifted_content_is_rejected(self):
+        self.assertIn("第 2 句", self.check(["晚安栗栗", "晚安栗栗"]))
+
+
+class TestShared(unittest.TestCase):
+    """共用片段：[共用 名稱] 展開成 episodes/shared.md 的內容；共用台詞自成一批，第二集起直接用快取。"""
+
+    EP = ROOT / "episodes" / "ep04_stars.md"
+
+    def test_expand(self):
+        items, shared = g.expand_shared(g.parse_script(self.EP))
+        self.assertFalse(any(it[0] == "shared" for it in items))
+        self.assertEqual(len(shared), 9)   # 開場 2 句、放鬆 6 句、咕咕爺爺登場 1 句
+        self.assertEqual(items[0], ("bg", ("搖籃曲",), None))
+        self.assertTrue(all(items[i][0] == "line" and items[i][1] == "旁白" for i in shared))
+        self.assertIn(("sfx", "貓頭鷹", True, 0.0), items)
+
+    def test_unknown_name_stops(self):
+        with self.assertRaises(SystemExit):
+            g.expand_shared([("shared", "不存在")])
+
+    def test_shared_batch_is_cached_across_episodes(self):
+        with tempfile.TemporaryDirectory() as d:
+            assets = Path(d)
+            for filename, _ in g.SOUNDS.values():
+                shutil.copy(FAKE_ASSETS / filename, assets / filename)
+            code, out = run(assets=assets, episode=self.EP)
+            self.assertEqual(code, 0, out)
+            self.assertIn("共 5 批", out)
+            self.assertTrue(list((assets / "shared").glob("batch_*.wav")))
+            code, out = run(assets=assets, episode=self.EP)   # 另一個 build/（新的一集），共用那批要用快取
+            self.assertEqual(code, 0, out)
+            self.assertIn("（快取）旁白（共用）", out)
+            self.assertNotIn("（快取）栗栗", out)
+
+
+class TestManualCuts(unittest.TestCase):
+    """人工切點（<批次>.cuts.txt）：照秒數切；行數不合、秒數超出音檔都要停下來，不猜。"""
+
+    def cut(self, text, count):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "batch_x.cuts.txt"
+            path.write_text(text, encoding="utf-8")
+            return g.manual_cuts(g.Audio(tone(2) + sil(1.0) + tone(3), R), path, count)
+
+    def test_cuts_by_seconds_and_skips_comments(self):
+        pieces = self.cut("# 註解\n0 2   # 第一句\n\n3.0 6.0\n", 2)
+        self.assertEqual([round(p.seconds, 3) for p in pieces], [2.0, 3.0])
+
+    def test_multiple_spans_are_joined(self):
+        pieces = self.cut("0 1 3 4\n4.5 6\n", 2)   # 第 1 句跳過 1–3 秒
+        self.assertEqual([round(p.seconds, 3) for p in pieces], [2.0, 1.5])
+
+    def test_wrong_count_or_range_stops(self):
+        for text, count in (("0 2\n", 2), ("0 2\n3 9\n", 2), ("2 1\n3 6\n", 2), ("0 2 3\n3 6\n", 2),
+                            ("0 3 2 4\n4.5 6\n", 2)):
+            with self.subTest(text=text), self.assertRaises(SystemExit):
+                self.cut(text, count)
 
 
 def rms_db(samples):
