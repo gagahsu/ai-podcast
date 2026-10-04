@@ -64,3 +64,13 @@ Wikimedia Commons 的檔案：在頁面上點「Download」或「Original file�
 - Commons 的 [Hemlock stream](https://commons.wikimedia.org/wiki/File:Hemlock_stream.ogg)：8kHz、嚴重削峰
 
 挑選新素材時，可以先下載 Freesound 頁面上的試聽 mp3（不用登入），分析有沒有「突然變大聲、又帶音高」的段落（鳥叫、蛙叫、人聲）。
+
+## 沖繩大冒險素材（tools/generate_adventure_assets.py）
+
+全數透過數字訊號合成（DSP/Noise/FM）與 ffmpeg 演算法生成，100% 免版權、乾淨原創：
+- `okinawa_adventure_bgm.mp3`：120 BPM 輕快跳躍夏日島嶼童趣音樂（木琴、烏克麗麗、低音貝斯）。
+- `sfx_clap.wav` / `sfx_highfive.wav`：拍手與清脆擊掌聲。
+- `sfx_applause.wav` / `sfx_cheer.wav`：全場拍手鼓掌與歡呼聲。
+- `sfx_bubbles.wav` / `sfx_water_bubbles.wav` / `sfx_splash.wav`：水族館氣泡、水中憋氣泡泡、水花飛濺。
+- `sfx_stomach.wav`：肚子餓咕嚕叫聲（低頻調變 FM 聲音）。
+- `sfx_sizzle.wav`：烤肉鐵板滋滋聲（高頻雜訊與隨機爆裂微波）。

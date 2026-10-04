@@ -89,7 +89,7 @@ class TestScript(unittest.TestCase):
     def test_parse(self):
         lines = [i for i in g.parse_script(EPISODE) if i[0] == "line"]
         self.assertEqual(len(lines), 46)
-        self.assertEqual({l[1] for l in lines}, set(g.CHARACTERS))
+        self.assertEqual({l[1] for l in lines}, {"旁白", "栗栗", "棉棉", "咕咕爺爺"})
 
     def test_directions_are_short_english(self):
         # 3.8 TTS 會把文字全部念出來，所以導演提示只能放在 style，而且要短
