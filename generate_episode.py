@@ -997,8 +997,9 @@ def main():
     print(f"模型：{MODEL}")
     print(f"{len(lines)} 句、{sum(len(TAG_RE.sub('', i[3])) for i in lines)} 字、停頓 {pauses:.0f} 秒，"
           f"預估長度約 {est / 60:.1f} 分鐘")
-    for speaker in CHARACTERS:
-        print(f"  {speaker}：{sum(1 for i in lines if i[1] == speaker)} 句")
+    for speaker in CHARACTERS:   # 只列這集有台詞的角色（CHARACTERS 裡也有其他系列的角色）
+        if count := sum(1 for i in lines if i[1] == speaker):
+            print(f"  {speaker}：{count} 句")
     if shared:
         print(f"  其中 {len(shared)} 句是共用片段（快取在 {SHARED_DIR}，生成過就不再花額度）")
 
