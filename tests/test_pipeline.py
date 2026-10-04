@@ -313,6 +313,22 @@ class TestManualCuts(unittest.TestCase):
         pieces = self.cut("0 1 3 4\n4.5 6\n", 2)   # 第 1 句跳過 1–3 秒
         self.assertEqual([round(p.seconds, 3) for p in pieces], [2.0, 1.5])
 
+    def test_ear_checked_line_skips_asr_check_only_for_that_line(self):
+        pieces = self.cut("0 2 人耳確認  # 氣音，使用者聽過\n3.0 6.0\n", 2)
+        self.assertEqual([p.ear_checked for p in pieces], [True, False])
+        self.assertEqual([round(p.seconds, 3) for p in pieces], [2.0, 3.0])
+        old = g.ASR_CHECK
+        try:
+            g.ASR_CHECK = True
+            seen = []
+            orig = g.transcribe_chars
+            g.transcribe_chars = lambda piece: seen.append(piece) or [(c, 0, 0) for c in "第二句"]
+            self.assertIsNone(g.check_pieces(pieces, ["第一句", "第二句"]))
+            self.assertEqual(seen, [pieces[1]])   # 只核對沒標記的那句
+        finally:
+            g.ASR_CHECK = old
+            g.transcribe_chars = orig
+
     def test_wrong_count_or_range_stops(self):
         for text, count in (("0 2\n", 2), ("0 2\n3 9\n", 2), ("2 1\n3 6\n", 2), ("0 2 3\n3 6\n", 2),
                             ("0 3 2 4\n4.5 6\n", 2)):

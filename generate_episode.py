@@ -599,6 +599,8 @@ def check_pieces(pieces, texts):
         return None
     try:
         for n, (piece, text) in enumerate(zip(pieces, texts), 1):
+            if getattr(piece, "ear_checked", False):   # 使用者親耳聽過（cuts.txt 寫了「人耳確認」）
+                continue
             heard = "".join(c for c, _, _ in transcribe_chars(piece))
             if why := _content_mismatch(n, heard, text):
                 return why
@@ -657,15 +659,23 @@ def split_with_whisper(audio, texts):
     return pieces, None
 
 
+EAR_CHECKED = "人耳確認"
+
+
 def manual_cuts(audio, cuts_path, count):
     """人工切點：批次音檔旁的 <批次檔名>.cuts.txt，每行一句「開始秒 結束秒」（# 之後是註解）。
     一行也可以寫好幾段「開始 結束 開始 結束 …」，接起來當一句，用來剪掉句中不要的聲音
     （例如 <exhales> 念出來的短吐氣聲）。
     用在模型念錯（例如同一句念兩次）、自動切不開，但音檔本身可以用的時候，不必再花額度。
-    行數跟句數不合、秒數超出音檔或順序顛倒就停下來，不猜。"""
-    lines = []
+    行數跟句數不合、秒數超出音檔或順序顛倒就停下來，不猜。
+    秒數後面寫「人耳確認」：使用者聽過、確定內容對，這句就不做語音辨識核對（例如很輕的氣音，
+    Whisper 每次聽成不同的字；ep01 咕咕爺爺的「晚安，栗栗」被聽成「哇蜜蜜」）。只有使用者親耳聽過才能加。"""
+    lines, ear = [], set()
     for raw in cuts_path.read_text(encoding="utf-8").splitlines():
         line = raw.split("#")[0].strip()
+        if line.endswith(EAR_CHECKED):
+            line = line[:-len(EAR_CHECKED)].strip()
+            ear.add(len(lines))
         if line:
             try:
                 nums = [float(x) for x in line.split()]
@@ -682,7 +692,9 @@ def manual_cuts(audio, cuts_path, count):
             sys.exit(f"\n{cuts_path}：第 {i} 句的秒數 {nums} 不合理（要由小到大，音檔長 {audio.seconds:.2f} 秒）。")
         pcm = b"".join(audio.pcm[int(a * audio.rate) * 2:int(b * audio.rate) * 2]
                        for a, b in zip(nums[::2], nums[1::2]))
-        pieces.append(Audio(pcm, audio.rate))
+        piece = Audio(pcm, audio.rate)
+        piece.ear_checked = (i - 1) in ear
+        pieces.append(piece)
     return pieces
 
 
@@ -720,6 +732,8 @@ def synthesize_batch(client, speaker, entries, cache_dir, min_interval, label=No
             sys.exit(f"\n{cuts_path}：照人工切點切出來的內容對不上台詞：{bad}")
         secs = "、".join(f"{p.seconds:.1f}" for p in pieces)
         print(f"  {tag}（人工切點）{label}：{len(entries)} 句照 {cuts_path.name} 切開（各 {secs} 秒）")
+        if ear := [n for n, p in enumerate(pieces, 1) if p.ear_checked]:
+            print(f"    第 {'、'.join(map(str, ear))} 句標了「{EAR_CHECKED}」，沒有用語音辨識核對")
         return pieces
     pieces, why = split_on_silence(audio, texts)
     if pieces is not None and len(entries) > 1 and (bad := check_pieces(pieces, texts)):
