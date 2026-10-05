@@ -95,6 +95,13 @@ SOUNDS = {
     "吸氣1": ("narrator_inhale_1.wav", None),
     "吸氣2": ("narrator_inhale_2.wav", None),
     "吐氣": ("narrator_exhale.wav", None),
+    # 從舊版 ep03 配音切出來的哈欠（新版的 <yawn> 只念成一口氣），在人工切點檔用「音效:名稱」接進句子裡。
+    # 已經調成跟新版同一角色的說話音量，所以是 None（做法見 assets/SOURCES.md）
+    "哈欠棉棉1": ("yawn_mianmian_1.wav", None),
+    "哈欠棉棉2": ("yawn_mianmian_2.wav", None),
+    "哈欠栗栗": ("yawn_lili.wav", None),
+    "哈欠咕咕爺爺": ("yawn_gugu.wav", None),
+    "哈欠旁白": ("yawn_narrator.wav", None),
     # 沖繩大冒險用素材
     "沖繩冒險": ("okinawa_adventure_bgm.mp3", -20),
     "水滴泡泡": ("sfx_bubbles.wav", -18),
@@ -465,7 +472,8 @@ WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")   # 有裝好 CUDA 函�
 MAX_DIFF_RATIO = 0.15  # 切出來的每句，辨識內容跟台詞最多可以差幾成的字（容許辨識錯字）
 # 靜音切開後也用語音辨識逐句核對內容。離線測試用合成音訊（聽不出字），用 ASR_CHECK=0 關掉
 ASR_CHECK = os.environ.get("ASR_CHECK", "1") != "0"
-PUNCT_RE = re.compile(r"[\s，。、！？；：「」『』（）…—,.!?;:'\"()\-]+")
+# ~：Whisper 會把拉長的音寫成「啊~~~」，不是字（ep03 棉棉）
+PUNCT_RE = re.compile(r"[\s，。、！？；：「」『』（）…—~～,.!?;:'\"()\-]+")
 _whisper = None
 
 
@@ -601,7 +609,7 @@ def check_pieces(pieces, texts):
         for n, (piece, text) in enumerate(zip(pieces, texts), 1):
             if getattr(piece, "ear_checked", False):   # 使用者親耳聽過（cuts.txt 寫了「人耳確認」）
                 continue
-            heard = "".join(c for c, _, _ in transcribe_chars(piece))
+            heard = "".join(c for c, _, _ in transcribe_chars(getattr(piece, "speech_only", piece)))
             if why := _content_mismatch(n, heard, text):
                 return why
     except ImportError:
@@ -660,6 +668,7 @@ def split_with_whisper(audio, texts):
 
 
 EAR_CHECKED = "人耳確認"
+CUT_SFX = "音效:"
 
 
 def manual_cuts(audio, cuts_path, count):
@@ -669,7 +678,10 @@ def manual_cuts(audio, cuts_path, count):
     用在模型念錯（例如同一句念兩次）、自動切不開，但音檔本身可以用的時候，不必再花額度。
     行數跟句數不合、秒數超出音檔或順序顛倒就停下來，不猜。
     秒數後面寫「人耳確認」：使用者聽過、確定內容對，這句就不做語音辨識核對（例如很輕的氣音，
-    Whisper 每次聽成不同的字；ep01 咕咕爺爺的「晚安，栗栗」被聽成「哇蜜蜜」）。只有使用者親耳聽過才能加。"""
+    Whisper 每次聽成不同的字；ep01 咕咕爺爺的「晚安，栗栗」被聽成「哇蜜蜜」）。只有使用者親耳聽過才能加。
+    兩組秒數之間（或最前、最後）可以寫「音效:名稱」（SOUNDS 裡的名稱），把那個音效接進這句，
+    用來把模型念得不好的聲音標記換成別的錄音（ep03：<yawn> 只念成一口氣，換成舊版配音的哈欠）。
+    語音辨識核對只聽台詞的部分，不含接進來的音效。"""
     lines, ear = [], set()
     for raw in cuts_path.read_text(encoding="utf-8").splitlines():
         line = raw.split("#")[0].strip()
@@ -677,23 +689,40 @@ def manual_cuts(audio, cuts_path, count):
             line = line[:-len(EAR_CHECKED)].strip()
             ear.add(len(lines))
         if line:
-            try:
-                nums = [float(x) for x in line.split()]
-            except ValueError:
-                nums = []
+            nums, inserts = [], {}   # inserts：第幾組秒數之前 → 音效名稱們
+            for tok in line.split():
+                if tok.startswith(CUT_SFX):
+                    name = tok[len(CUT_SFX):]
+                    if name not in SOUNDS or len(nums) % 2:
+                        nums = []
+                        break
+                    inserts.setdefault(len(nums) // 2, []).append(name)
+                    continue
+                try:
+                    nums.append(float(tok))
+                except ValueError:
+                    nums = []
+                    break
             if not nums or len(nums) % 2:
-                sys.exit(f"\n{cuts_path}：看不懂這一行「{raw}」，格式是「開始秒 結束秒」（可以寫好幾組）。")
-            lines.append(nums)
+                sys.exit(f"\n{cuts_path}：看不懂這一行「{raw}」，格式是「開始秒 結束秒」（可以寫好幾組，"
+                         f"組和組之間可以寫「{CUT_SFX}名稱」，名稱要在 SOUNDS 裡）。")
+            lines.append((nums, inserts))
     if len(lines) != count:
         sys.exit(f"\n{cuts_path}：寫了 {len(lines)} 句，但這批有 {count} 句。")
     pieces = []
-    for i, nums in enumerate(lines, 1):
+    for i, (nums, inserts) in enumerate(lines, 1):
         if nums != sorted(nums) or len(set(nums)) != len(nums) or not 0 <= nums[0] or nums[-1] > audio.seconds + 0.01:
             sys.exit(f"\n{cuts_path}：第 {i} 句的秒數 {nums} 不合理（要由小到大，音檔長 {audio.seconds:.2f} 秒）。")
-        pcm = b"".join(audio.pcm[int(a * audio.rate) * 2:int(b * audio.rate) * 2]
-                       for a, b in zip(nums[::2], nums[1::2]))
+        speech = [audio.pcm[int(a * audio.rate) * 2:int(b * audio.rate) * 2]
+                  for a, b in zip(nums[::2], nums[1::2])]
+        pcm = b""
+        for k in range(len(speech) + 1):
+            pcm += b"".join(decode_sound(name, audio.rate) for name in inserts.get(k, []))
+            pcm += speech[k] if k < len(speech) else b""
         piece = Audio(pcm, audio.rate)
         piece.ear_checked = (i - 1) in ear
+        if inserts:
+            piece.speech_only = Audio(b"".join(speech), audio.rate)
         pieces.append(piece)
     return pieces
 

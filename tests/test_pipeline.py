@@ -241,6 +241,12 @@ class TestWhisperCheck(unittest.TestCase):
         pieces, _ = self.split("月亮離我們非常遠", "你們先看看路邊這朵小白花")
         self.assertIsNone(pieces)
 
+    def test_drawn_out_sound_tilde_is_not_a_char(self):
+        # Whisper 把拉長的「啊」寫成「啊~~~」，~ 不能算成多出來的字（ep03 棉棉）
+        heard = g._norm("啊~~~好困喔")
+        self.assertEqual(heard, "啊好困喔")
+        self.assertIsNone(g._content_mismatch(1, heard, "啊……好睏喔。<yawn>"))
+
 
 class TestSilenceSplitContentCheck(unittest.TestCase):
     """靜音切開、句數也對，但內容錯位（模型多念一句又有兩句黏在一起）時，要被擋下來。"""
@@ -329,9 +335,28 @@ class TestManualCuts(unittest.TestCase):
             g.ASR_CHECK = old
             g.transcribe_chars = orig
 
+    def test_sound_inserted_between_spans_but_not_asr_checked(self):
+        orig, g.decode_sound = g.decode_sound, lambda name, rate: sil(0.5)
+        try:
+            pieces = self.cut("0 1 音效:哈欠旁白 1.5 2\n音效:哈欠旁白 3 6 音效:哈欠旁白\n", 2)
+        finally:
+            g.decode_sound = orig
+        self.assertEqual([round(p.seconds, 3) for p in pieces], [2.0, 4.0])
+        self.assertEqual([round(p.speech_only.seconds, 3) for p in pieces], [1.5, 3.0])
+        old, orig = g.ASR_CHECK, g.transcribe_chars
+        try:
+            g.ASR_CHECK, seen = True, []
+            g.transcribe_chars = lambda piece: seen.append(piece) or [(c, 0, 0) for c in "第一句"]
+            g.check_pieces(pieces[:1], ["第一句"])
+            self.assertIs(seen[0], pieces[0].speech_only)   # 只聽台詞，不聽接進來的音效
+        finally:
+            g.ASR_CHECK, g.transcribe_chars = old, orig
+
     def test_wrong_count_or_range_stops(self):
         for text, count in (("0 2\n", 2), ("0 2\n3 9\n", 2), ("2 1\n3 6\n", 2), ("0 2 3\n3 6\n", 2),
-                            ("0 3 2 4\n4.5 6\n", 2)):
+                            ("0 3 2 4\n4.5 6\n", 2),
+                            ("0 1 音效:沒有這個 1.5 2\n3 6\n", 2),   # 不在 SOUNDS 裡
+                            ("0 音效:哈欠旁白 1 3 6\n3 6\n", 2)):    # 插在一組秒數中間
             with self.subTest(text=text), self.assertRaises(SystemExit):
                 self.cut(text, count)
 
