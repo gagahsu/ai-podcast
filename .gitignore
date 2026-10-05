@@ -18,8 +18,9 @@ finreels/
 # 音效與背景素材（只進版控來源清單，見 assets/SOURCES.md）
 assets/*
 !assets/SOURCES.md
-# 從旁白配音切出來的呼吸聲，沒辦法重新下載，例外進版控
+# 從配音切出來的呼吸聲、哈欠，沒辦法重新下載，例外進版控
 !assets/narrator_*.wav
+!assets/yawn_*.wav
 # 共用片段（開場、放鬆、咕咕爺爺登場）的配音快取，生成一次就固定用，進版控
 !assets/shared/
 !assets/shared/*.wav
