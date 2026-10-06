@@ -462,6 +462,7 @@ def split_on_silence(audio, texts):
     for i in range(0, len(bounds), 2):
         a, b = max(bounds[i] - pad, 0), min(bounds[i + 1] + pad, total)
         pieces.append(Audio(audio.pcm[a * 2:b * 2], rate))
+        pieces[-1].start = a
     return pieces, None
 
 
@@ -664,6 +665,7 @@ def split_with_whisper(audio, texts):
         if why := _content_mismatch(i // 2 + 1, heard_text, texts[i // 2]):
             return None, why
         pieces.append(Audio(audio.pcm[a * 2:b * 2], rate))
+        pieces[-1].start = a
     return pieces, None
 
 
@@ -727,15 +729,36 @@ def manual_cuts(audio, cuts_path, count):
     return pieces
 
 
-def synthesize_batch(client, speaker, entries, cache_dir, min_interval, label=None):
-    """entries: [(導演提示, 台詞), ...]。成功回傳每句的 Audio，失敗回傳 None。"""
+def batch_request(speaker, entries, cache_dir):
+    """一批要送出的內容和它的快取檔路徑。entries: [(導演提示, 台詞), ...]。"""
     voice, _ = CHARACTERS[speaker]
-    label = label or speaker
     contents = [
         (text + (BATCH_SEPARATOR if i < len(entries) - 1 else ""), style_for(speaker, d))
         for i, (d, text) in enumerate(entries)
     ]
-    path = _cache_path(cache_dir, "batch_", voice, contents)
+    return voice, contents, _cache_path(cache_dir, "batch_", voice, contents)
+
+
+def auto_split(audio, texts, label, tag=""):
+    """自動切句：先靜音切割（切完逐句核對內容），不行再用語音辨識。回傳 (pieces, 原因, tag)。
+    每段 piece.start 是它在批次音檔裡的起點（取樣數），tools/trim_tails.py 用來寫人工切點。"""
+    pieces, why = split_on_silence(audio, texts)
+    if pieces is not None and len(texts) > 1 and (bad := check_pieces(pieces, texts)):
+        print(f"  {tag}{label}：靜音切開的內容對不上台詞：{bad}")
+        pieces, why = None, "靜音切開了，但內容對不上"
+    if pieces is None and len(texts) > 1:
+        print(f"  {tag}{label}：只靠停頓切不開（{why.split('（')[0]}），改用語音辨識找切點")
+        pieces, why = split_with_whisper(audio, texts)
+        if pieces is not None:
+            why = None
+            tag += "（語音辨識）"
+    return pieces, why, tag
+
+
+def synthesize_batch(client, speaker, entries, cache_dir, min_interval, label=None):
+    """entries: [(導演提示, 台詞), ...]。成功回傳每句的 Audio，失敗回傳 None。"""
+    label = label or speaker
+    voice, contents, path = batch_request(speaker, entries, cache_dir)
     cached = path.exists()
     if cached:
         audio = Audio.load(path)
@@ -764,16 +787,7 @@ def synthesize_batch(client, speaker, entries, cache_dir, min_interval, label=No
         if ear := [n for n, p in enumerate(pieces, 1) if p.ear_checked]:
             print(f"    第 {'、'.join(map(str, ear))} 句標了「{EAR_CHECKED}」，沒有用語音辨識核對")
         return pieces
-    pieces, why = split_on_silence(audio, texts)
-    if pieces is not None and len(entries) > 1 and (bad := check_pieces(pieces, texts)):
-        print(f"  {tag}{label}：靜音切開的內容對不上台詞：{bad}")
-        pieces, why = None, "靜音切開了，但內容對不上"
-    if pieces is None and len(entries) > 1:
-        print(f"  {tag}{label}：只靠停頓切不開（{why.split('（')[0]}），改用語音辨識找切點")
-        pieces, why = split_with_whisper(audio, texts)
-        if pieces is not None:
-            why = None
-            tag += "（語音辨識）"
+    pieces, why, tag = auto_split(audio, texts, label, tag)
     if pieces is None:
         print(f"  {tag}{label}：{len(entries)} 句一次生成，但切不開：{why}")
         print(f"    批次音檔：{path}（聽過、音檔本身可用的話，可以寫 {cuts_path.name} 人工指定切點）")

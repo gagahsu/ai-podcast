@@ -49,6 +49,7 @@ PYTHONPATH=tests/fake python generate_episode.py episodes/ep01_moon.md --rpm 600
   3. 都失敗 → 停下。
   - 人工切點：批次音檔旁放 `<批次檔名>.cuts.txt`（每行一句「開始秒 結束秒」；一行寫好幾組就接起來，可以剪掉句中不要的聲音），`manual_cuts` 就照它切，切完一樣經過 `check_pieces` 核對，不自動切、不花額度。用在音檔本身能用、但模型念錯的時候（ep04 棉棉把一句念了兩次，對齊必然失敗）。秒數由 Claude 用 `transcribe_chars`／`_silent_runs` 離線找出、對每段單獨辨識確認，再請使用者試聽。集數的切點檔在 `build/`（不進版控），共用片段的在 `assets/shared/`（進版控；ep04 時用它剪掉了 `<exhales>` 念出來的短吐氣聲，見 shared.md 說明），換了台詞或 style 快取鍵就變，舊的切點檔自然不會被用到。秒數後面寫 `人耳確認` 的那一行不做語音辨識核對，用在很輕的氣音（ep01 咕咕爺爺的「晚安，栗栗」被聽成「哇蜜蜜」「哇莉莉」，每次都不一樣）；**只有使用者親耳聽過、確認內容對了才能加**，Claude 不能自己判斷後加上。兩組秒數之間可以寫 `音效:名稱`（`SOUNDS` 裡的名稱），把那個音效接進句子裡、換掉模型念得不好的聲音標記；語音辨識核對只聽台詞部分（`speech_only`）。ep03 的 `<yawn>` 只念成一口氣，就是這樣換成舊版配音切出來的哈欠（`assets/yawn_*.wav`，見 SOURCES.md）。
 - `inspect_batches`：`--inspect`，列出批次音檔的靜音長度，除錯用，不呼叫 API。
+- `tools/trim_tails.py`：生成後檢查句尾。Gemini 在下一句之前會大聲吸一口氣，自動切句常把它分到上一句句尾（ep07 使用者聽到像哈欠或喘氣，ep08 一集 7 句）。工具找出「最後一個字 → 安靜 → 一小段大聲的聲音」的句子，`--write` 寫成人工切點檔，句尾剪到念完；判斷靠語音辨識的最後一個字跟台詞同音（不比聲調），分不清就不剪。已有切點檔的批次只檢查不改寫，標「人耳確認」的句子跳過。`auto_split`／`batch_request` 是為了它從 `synthesize_batch` 抽出來的，自動切出來的每段有 `start`（在批次音檔裡的起點）。
 - 音效與背景：`SOUNDS`：名稱 → (assets/ 裡的檔名, 相對人聲 dB)。`measure_lufs` 先量素材響度，所以 dB 跟素材原本多大聲無關。
   - `assemble`：插入型 `[音效 X]` 直接接進人聲軌；同時記下疊加音效、背景區段、說話區間的秒數。`[音量 -NdB]` 讓之後的台詞都調整 N dB（直到下一個 `[音量]`），只在組裝時處理，不影響快取鍵。用在 Gemini 把該輕的段落念得比較大聲時（ep06 後段比中段大 6–8 dB，style 寫 softer 也沒用）。
   - `mix`：ffmpeg `adelay` 定位、`amix normalize=0`。背景的 ducking 用 `volume` 運算式（`duck_expr`），**前面一定要有 `asetnsamples`**，否則 frame 太大，運算式約 0.5 秒才更新一次。

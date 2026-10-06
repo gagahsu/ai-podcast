@@ -569,5 +569,63 @@ class TestSounds(unittest.TestCase):
         self.assertIn("已混入 0 個疊加音效、1 段背景", out)
 
 
+sys.path.insert(0, str(ROOT / "tools"))
+import trim_tails  # noqa: E402
+
+
+class TestTrimTails(unittest.TestCase):
+    """tools/trim_tails.py：只剪「念完 → 安靜 → 一小段大聲的聲音」，分不清就不剪。"""
+
+    TEXT = "晚安，栗栗。"
+
+    @staticmethod
+    def chars(text, t0, t1):
+        step = (t1 - t0) / len(text)
+        return [(c, t0 + i * step, t0 + (i + 1) * step) for i, c in enumerate(text)]
+
+    def tail(self, pcm, text=TEXT, heard="晚安莉莉", end=2.0):
+        return trim_tails.find_tail(g.Audio(pcm, R), text, self.chars(heard, 0.0, end))
+
+    def test_breath_after_pause_is_trimmed(self):
+        end, msg = self.tail(tone(2) + sil(1.0) + tone(0.5) + sil(0.2))
+        self.assertAlmostEqual(end, 2.1, places=2)   # 剪到念完＋0.1 秒，台詞不受影響
+        self.assertIn("句尾後", msg)
+
+    def test_final_particle_tone_is_ignored(self):
+        # 句尾語氣詞常被寫成同音不同調的字（ep08「好厲害喔」→「好厉害哦」）
+        end, _ = self.tail(tone(2) + sil(1.0) + tone(0.5) + sil(0.2), text="好厲害喔。", heard="好厉害哦")
+        self.assertAlmostEqual(end, 2.1, places=2)
+
+    def test_clean_tail_is_left_alone(self):
+        self.assertEqual(self.tail(tone(2) + sil(1.5)), (None, None))
+        # 很輕的氣息（約 -40 dB，ep08 實測念完之後常有）不剪
+        breath = array("h", [300 if (k // 40) % 2 else -300 for k in range(int(R * 0.5))]).tobytes()
+        self.assertEqual(self.tail(tone(2) + sil(1.0) + breath + sil(0.2)), (None, None))
+
+    def test_unclear_cases_are_not_trimmed(self):
+        cases = {
+            "最後一個字對不上（Whisper 可能漏聽了句尾）": dict(heard="晚安"),
+            "聲音太長，可能是沒辨識到的台詞": dict(pcm=tone(2) + sil(1.0) + tone(2.0) + sil(0.2)),
+            "停頓太短": dict(pcm=tone(2) + sil(0.2) + tone(0.5) + sil(0.2)),
+            "台詞以聲音標記結尾": dict(text="好睏喔。<yawn>", heard="好困哦"),
+        }
+        for name, kw in cases.items():
+            with self.subTest(name):
+                kw.setdefault("pcm", tone(2) + sil(1.0) + tone(0.5) + sil(0.2))
+                end, msg = self.tail(**kw)
+                self.assertIsNone(end)
+
+    def test_written_cuts_round_trip(self):
+        pcm = tone(2) + sil(1.0) + tone(0.5) + sil(1.0) + tone(3)
+        a, b = g.Audio(pcm[:int(3.5 * R) * 2], R), g.Audio(pcm[int(4.5 * R) * 2:], R)
+        a.start, b.start = 0, int(4.5 * R)
+        text = trim_tails.cuts_text("ep99 旁白", [a, b], [2.1, None], R)
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "batch_x.cuts.txt"
+            path.write_text(text, encoding="utf-8")
+            pieces = g.manual_cuts(g.Audio(pcm, R), path, 2)
+        self.assertEqual([round(p.seconds, 2) for p in pieces], [2.1, 3.0])
+
+
 if __name__ == "__main__":
     unittest.main()
