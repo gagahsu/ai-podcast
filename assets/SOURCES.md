@@ -16,6 +16,16 @@
 | 河水慢 | `river_flowing_slow.wav` | CC0 | Tom_Kaszuba | 由 `river_flowing.wav` 自製（見下方） | 放慢到 0.7 倍，1:36。助眠尾段用（ep04 起） |
 | 貓頭鷹 | `scops_owl.ogg` | Public domain | Raghu | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Otus_sunia.ogg) | 東方角鴞的輕聲鳴叫，10 秒 |
 
+## 待找素材（ep10、ep11）
+
+已經在 `SOUNDS` 訂好名稱和檔名（dB 是預估值），**還沒找到素材**：寫腳本的雲端環境擋了 Freesound、Wikimedia Commons、Internet Archive，沒辦法搜尋和下載。找到之後，照 `/new-episode` 第四步核對授權（CC0 或公有領域）、用 `tools/screen_audio.py` 篩掉突發聲，再移到上面的表格。
+
+| 腳本名稱 | 存檔名稱 | 用在 | 條件 |
+|---|---|---|---|
+| 輕風 | `wind_gentle.wav` | ep10（第 19、23 集也會用） | 很輕、平穩的風，沒有呼嘯聲、沒有鳥叫；可以循環 |
+| 落葉 | `leaves_rustle.wav` | ep10 | 樹葉被風吹的沙沙聲，不要有腳踩落葉的碎裂聲 |
+| 小雨 | `rain_light.wav` | ep11 | 溫和的小雨，不能有雷聲、大雨、屋頂鐵皮或雨傘聲；最好聽得出雨打在樹葉上 |
+
 ## 放慢的環境音（自製，不進版控）
 
 助眠尾段用比較慢、比較安靜的蟲鳴和流水。下載原檔後，在 `assets/` 裡用 ffmpeg 產生：

@@ -91,6 +91,10 @@ SOUNDS = {
     "夜晚蟲鳴慢": ("night_crickets_slow.wav", -24),
     "河水慢": ("river_flowing_slow.wav", -24),
     "貓頭鷹": ("scops_owl.ogg", -18),  # 疊在台詞底下，不會被 ducking，所以小聲一點
+    # ep10、ep11 用：素材還沒找（見 assets/SOURCES.md「待找素材」），檔名先訂好，dB 是預估值
+    "輕風": ("wind_gentle.wav", -26),
+    "落葉": ("leaves_rustle.wav", -28),
+    "小雨": ("rain_light.wav", -24),
     # 從 ep02 旁白配音切出來再拉長的呼吸聲（做法見 assets/SOURCES.md）。None = 保持原音量，本來就跟人聲一樣大
     "吸氣1": ("narrator_inhale_1.wav", None),
     "吸氣2": ("narrator_inhale_2.wav", None),
