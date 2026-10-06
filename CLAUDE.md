@@ -12,7 +12,7 @@
 
 ## 新的一集
 
-用專案 skill `/new-episode`（`.claude/skills/new-episode/SKILL.md`）：使用者只給題目，或什麼都不給讓 Claude 從 `episodes/TOPICS.md` 自動選題。skill 裡寫了完整流程（選題 → 腳本 → 查核 → 音效 → dry-run → 停下來等確認 → 生成 → 試聽清單）。改了腳本慣例或固定段落時，要同步更新 skill。
+用專案 skill `/new-episode`（`.claude/skills/new-episode/SKILL.md`）：使用者只給題目，或什麼都不給讓 Claude 照 `episodes/TOPICS.md` 的季度規劃做下一集。skill 裡寫了完整流程（選題 → 腳本 → 查核 → 音效 → dry-run → 停下來等確認 → 生成 → 試聽清單）。改了腳本慣例或固定段落時，要同步更新 skill。
 
 ## 常用指令
 

@@ -32,7 +32,7 @@ py generate_episode.py episodes/ep01_moon.md             # 生成整集
 在 Claude Code 裡輸入：
 
 ```
-/new-episode                    # 自動從 episodes/TOPICS.md 選題
+/new-episode                    # 照 episodes/TOPICS.md 的季度規劃做下一集
 /new-episode 為什麼會打哈欠      # 指定題目
 ```
 
