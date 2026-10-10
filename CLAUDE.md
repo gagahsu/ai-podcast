@@ -24,6 +24,10 @@ python generate_episode.py episodes/ep01_moon.md --dry-run         # 解析腳�
 PYTHONPATH=tests/fake python generate_episode.py episodes/ep01_moon.md --rpm 6000   # 用假 SDK 跑完整流程
 ```
 
+每次組裝都會輸出 `build/<集名>.timeline.json`（每句的角色、台詞、在整集音檔裡的起訖秒數，給 `../forestreels` 做 Reel 用；`write_timeline`）。已生成的集數用 `--offline --timeline-only` 從快取補出時間軸，不花額度、不重新輸出 wav/mp3。
+
+`episodes/reels_s1.md` 不是一集節目，是給 forestreels 精華 Reel 用的旁白（13 集的開場提問＋共用片尾導流，對家長說話），只有旁白一批、整份 1 次 API，已生成。改任何字都要整批重新生成。
+
 `tests/fake/google/genai` 是假的 SDK，用 `FAKE_MODE=good|wav|long` 模擬不同回應。
 
 ## 絕對不要做的事
