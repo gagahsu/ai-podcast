@@ -14,6 +14,7 @@ import warnings
 import base64
 import hashlib
 import io
+import json
 import math
 import os
 import re
@@ -91,7 +92,7 @@ SOUNDS = {
     "夜晚蟲鳴慢": ("night_crickets_slow.wav", -24),
     "河水慢": ("river_flowing_slow.wav", -24),
     "貓頭鷹": ("scops_owl.ogg", -18),  # 疊在台詞底下，不會被 ducking，所以小聲一點
-    # ep10、ep11 用：素材還沒找（見 assets/SOURCES.md「待找素材」），檔名先訂好，dB 是預估值
+    # ep10、ep11 用：dB 是預估值
     "輕風": ("wind_gentle.wav", -26),
     "落葉": ("leaves_rustle.wav", -28),
     "小雨": ("rain_light.wav", -24),
@@ -106,6 +107,9 @@ SOUNDS = {
     "哈欠栗栗": ("yawn_lili.wav", None),
     "哈欠咕咕爺爺": ("yawn_gugu.wav", None),
     "哈欠旁白": ("yawn_narrator.wav", None),
+    # ep10 旁白念的「晚安，為什麼森林。」（念得正確的一次），在人工切點檔用「音效:晚安森林」整句換掉念錯的版本。
+    # 本來就是同一個角色的說話音量，所以是 None（做法見 assets/SOURCES.md）
+    "晚安森林": ("narrator_goodnight_forest.wav", None),
     # 沖繩大冒險用素材
     "沖繩冒險": ("okinawa_adventure_bgm.mp3", -20),
     "水滴泡泡": ("sfx_bubbles.wav", -18),
@@ -687,7 +691,9 @@ def manual_cuts(audio, cuts_path, count):
     Whisper 每次聽成不同的字；ep01 咕咕爺爺的「晚安，栗栗」被聽成「哇蜜蜜」）。只有使用者親耳聽過才能加。
     兩組秒數之間（或最前、最後）可以寫「音效:名稱」（SOUNDS 裡的名稱），把那個音效接進這句，
     用來把模型念得不好的聲音標記換成別的錄音（ep03：<yawn> 只念成一口氣，換成舊版配音的哈欠）。
-    語音辨識核對只聽台詞的部分，不含接進來的音效。"""
+    語音辨識核對只聽台詞的部分，不含接進來的音效。
+    一行也可以只寫音效、不寫秒數：整句換成那段錄音（ep11 旁白把「晚安，為什麼森林」念成「為森森林」，
+    換成 ep10 同一句的配音），這時語音辨識核對的就是那段錄音本身。"""
     lines, ear = [], set()
     for raw in cuts_path.read_text(encoding="utf-8").splitlines():
         line = raw.split("#")[0].strip()
@@ -695,21 +701,21 @@ def manual_cuts(audio, cuts_path, count):
             line = line[:-len(EAR_CHECKED)].strip()
             ear.add(len(lines))
         if line:
-            nums, inserts = [], {}   # inserts：第幾組秒數之前 → 音效名稱們
+            nums, inserts, bad = [], {}, False   # inserts：第幾組秒數之前 → 音效名稱們
             for tok in line.split():
                 if tok.startswith(CUT_SFX):
                     name = tok[len(CUT_SFX):]
                     if name not in SOUNDS or len(nums) % 2:
-                        nums = []
+                        bad = True
                         break
                     inserts.setdefault(len(nums) // 2, []).append(name)
                     continue
                 try:
                     nums.append(float(tok))
                 except ValueError:
-                    nums = []
+                    bad = True
                     break
-            if not nums or len(nums) % 2:
+            if bad or not (nums or inserts) or len(nums) % 2:
                 sys.exit(f"\n{cuts_path}：看不懂這一行「{raw}」，格式是「開始秒 結束秒」（可以寫好幾組，"
                          f"組和組之間可以寫「{CUT_SFX}名稱」，名稱要在 SOUNDS 裡）。")
             lines.append((nums, inserts))
@@ -717,7 +723,8 @@ def manual_cuts(audio, cuts_path, count):
         sys.exit(f"\n{cuts_path}：寫了 {len(lines)} 句，但這批有 {count} 句。")
     pieces = []
     for i, (nums, inserts) in enumerate(lines, 1):
-        if nums != sorted(nums) or len(set(nums)) != len(nums) or not 0 <= nums[0] or nums[-1] > audio.seconds + 0.01:
+        if nums and (nums != sorted(nums) or len(set(nums)) != len(nums) or not 0 <= nums[0]
+                     or nums[-1] > audio.seconds + 0.01):
             sys.exit(f"\n{cuts_path}：第 {i} 句的秒數 {nums} 不合理（要由小到大，音檔長 {audio.seconds:.2f} 秒）。")
         speech = [audio.pcm[int(a * audio.rate) * 2:int(b * audio.rate) * 2]
                   for a, b in zip(nums[::2], nums[1::2])]
@@ -727,7 +734,7 @@ def manual_cuts(audio, cuts_path, count):
             pcm += speech[k] if k < len(speech) else b""
         piece = Audio(pcm, audio.rate)
         piece.ear_checked = (i - 1) in ear
-        if inserts:
+        if inserts and speech:   # 整句都是音效（沒有秒數）時，核對的就是那段錄音
             piece.speech_only = Audio(b"".join(speech), audio.rate)
         pieces.append(piece)
     return pieces
@@ -997,6 +1004,18 @@ def assemble(items, rendered, rate, insert_pcm):
     return Audio(bytes(pcm), rate), overlays, backgrounds, speech
 
 
+def write_timeline(items, speech, seconds, path):
+    """每句台詞在整集音檔裡的起訖秒數，給 ../forestreels 做 Reel 用。
+    speech 是 assemble 照台詞順序記的說話區間，兩者一一對應。"""
+    lines = [it for it in items if it[0] == "line"]
+    if len(lines) != len(speech):
+        sys.exit(f"時間軸對不上：{len(lines)} 句台詞、{len(speech)} 段說話區間")
+    data = {"seconds": round(seconds, 3), "lines": [
+        {"speaker": sp, "text": text, "start": round(s, 3), "end": round(e, 3)}
+        for (_, sp, _, text), (s, e) in zip(lines, speech)]}
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def background_tracks(backgrounds, total, bgm):
     """每段背景要怎麼播：[(檔案, 相對 dB, 開始, 開始淡出, 結束)]。--bgm 會蓋掉腳本裡的 [背景]。
     遇到 [背景 停] 或下一段背景就開始淡出（新的同時淡入，等於交叉淡化）；沒停的播到結尾前淡出。
@@ -1112,6 +1131,8 @@ def main():
                     help="一句一次請求（語氣控制最精準，但請求次數多，適合付費方案）")
     ap.add_argument("--no-paid", action="store_true",
                     help="不使用付費 key；免費額度用完就停下")
+    ap.add_argument("--timeline-only", action="store_true",
+                    help="只輸出 build/<集名>.timeline.json，不輸出 wav/mp3（搭配 --offline 給已生成的集數補時間軸）")
     args = ap.parse_args()
 
     if args.inspect:
@@ -1219,6 +1240,11 @@ def main():
 
     episode, overlays, backgrounds, speech = assemble(
         items, rendered, rate, lambda name: decode_sound(name, rate))
+    timeline_path = build / f"{stem}.timeline.json"
+    write_timeline(items, speech, episode.seconds, timeline_path)
+    print(f"已輸出 {timeline_path}")
+    if args.timeline_only:
+        return
     wav_path = build / f"{stem}.wav"
     episode.save(wav_path)
     print(f"已輸出 {wav_path}（{episode.seconds / 60:.1f} 分鐘）")

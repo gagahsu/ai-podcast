@@ -2,6 +2,7 @@
 
 執行：python -m unittest discover -s tests -v
 """
+import json
 import os
 import random
 import re
@@ -110,6 +111,13 @@ class TestPipeline(unittest.TestCase):
         code, out = run()
         self.assertEqual(code, 0, out)
         self.assertEqual(out.count("一次生成並切開"), 5, out)   # 1 批共用 + 4 批角色
+
+    def test_timeline_only_skips_audio_export(self):
+        code, out = run("--limit", "5", "--timeline-only")
+        self.assertEqual(code, 0, out)
+        self.assertIn("timeline.json", out)
+        self.assertNotIn("_first5.mp3", out)
+        self.assertNotIn("_first5.wav", out)
 
     def test_wav_response(self):
         code, out = run("--limit", "5", mode="wav")
@@ -352,10 +360,29 @@ class TestManualCuts(unittest.TestCase):
         finally:
             g.ASR_CHECK, g.transcribe_chars = old, orig
 
+    def test_sound_only_line_replaces_whole_sentence_and_is_asr_checked(self):
+        orig, g.decode_sound = g.decode_sound, lambda name, rate: sil(0.5)
+        try:
+            pieces = self.cut("0 2\n音效:哈欠旁白   # 整句換成另一段錄音\n", 2)
+        finally:
+            g.decode_sound = orig
+        self.assertEqual([round(p.seconds, 3) for p in pieces], [2.0, 0.5])
+        self.assertFalse(hasattr(pieces[1], "speech_only"))
+        old, orig = g.ASR_CHECK, g.transcribe_chars
+        try:
+            g.ASR_CHECK, seen = True, []
+            g.transcribe_chars = lambda piece: seen.append(piece) or [(c, 0, 0) for c in "晚安"]
+            g.check_pieces(pieces[1:], ["晚安"])
+            self.assertIs(seen[0], pieces[1])   # 核對的是換進來的那段錄音
+        finally:
+            g.ASR_CHECK, g.transcribe_chars = old, orig
+
     def test_wrong_count_or_range_stops(self):
         for text, count in (("0 2\n", 2), ("0 2\n3 9\n", 2), ("2 1\n3 6\n", 2), ("0 2 3\n3 6\n", 2),
                             ("0 3 2 4\n4.5 6\n", 2),
                             ("0 1 音效:沒有這個 1.5 2\n3 6\n", 2),   # 不在 SOUNDS 裡
+                            ("音效:沒有這個\n3 6\n", 2),            # 只有音效，但不在 SOUNDS 裡
+                            ("音效:哈欠旁白 abc\n3 6\n", 2),        # 音效後面接看不懂的字
                             ("0 音效:哈欠旁白 1 3 6\n3 6\n", 2)):    # 插在一組秒數中間
             with self.subTest(text=text), self.assertRaises(SystemExit):
                 self.cut(text, count)
@@ -403,6 +430,20 @@ class TestSounds(unittest.TestCase):
         self.assertEqual(overlays, [(end1, "貓頭鷹")])                     # 疊上去的不佔時間
         self.assertEqual(speech, [(0.5, 1.5), (end1 + 2, end1 + 3)])
         self.assertEqual(backgrounds, [("搖籃曲", 0.0, ep.seconds, None)])
+
+    def test_write_timeline(self):
+        items = [("sfx", "開場鈴", False, 0.0), ("line", "旁白", "warm", "一<chuckle>"),
+                 ("pause", 2.0), ("line", "栗栗", "", "二")]
+        rendered = {1: g.Audio(tone(1), R), 3: g.Audio(tone(1), R)}
+        ep, _, _, speech = g.assemble(items, rendered, R, lambda name: sil(0.5))
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t.json"
+            g.write_timeline(items, speech, ep.seconds, path)
+            data = json.loads(path.read_text(encoding="utf-8"))
+        self.assertAlmostEqual(data["seconds"], ep.seconds, places=3)
+        self.assertEqual([(l["speaker"], l["text"]) for l in data["lines"]], [("旁白", "一<chuckle>"), ("栗栗", "二")])
+        self.assertEqual(data["lines"][0]["start"], 0.5)
+        self.assertAlmostEqual(data["lines"][1]["start"], 1.5 + g.LINE_GAP_SEC + 2, places=3)
 
     def test_volume_marker_applies_until_next_marker(self):
         # [音量 -6dB] 之後的台詞都變小聲，直到下一個 [音量]；不影響送出的內容（快取鍵）

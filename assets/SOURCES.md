@@ -15,16 +15,9 @@
 | 夜晚蟲鳴慢 | `night_crickets_slow.wav` | CC0 | Defelozedd94 | 由 `night_crickets.wav` 自製（見下方） | 放慢到 0.7 倍，4:01。助眠尾段用（ep04 起） |
 | 河水慢 | `river_flowing_slow.wav` | CC0 | Tom_Kaszuba | 由 `river_flowing.wav` 自製（見下方） | 放慢到 0.7 倍，1:36。助眠尾段用（ep04 起） |
 | 貓頭鷹 | `scops_owl.ogg` | Public domain | Raghu | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Otus_sunia.ogg) | 東方角鴞的輕聲鳴叫，10 秒 |
-
-## 待找素材（ep10、ep11）
-
-已經在 `SOUNDS` 訂好名稱和檔名（dB 是預估值），**還沒找到素材**：寫腳本的雲端環境擋了 Freesound、Wikimedia Commons、Internet Archive，沒辦法搜尋和下載。找到之後，照 `/new-episode` 第四步核對授權（CC0 或公有領域）、用 `tools/screen_audio.py` 篩掉突發聲，再移到上面的表格。
-
-| 腳本名稱 | 存檔名稱 | 用在 | 條件 |
-|---|---|---|---|
-| 輕風 | `wind_gentle.wav` | ep10（第 19、23 集也會用） | 很輕、平穩的風，沒有呼嘯聲、沒有鳥叫；可以循環 |
-| 落葉 | `leaves_rustle.wav` | ep10 | 樹葉被風吹的沙沙聲，不要有腳踩落葉的碎裂聲 |
-| 小雨 | `rain_light.wav` | ep11 | 溫和的小雨，不能有雷聲、大雨、屋頂鐵皮或雨傘聲；最好聽得出雨打在樹葉上 |
+| 輕風 | `wind_gentle.wav` | CC0 | kyles | [Freesound #454360](https://freesound.org/people/kyles/sounds/454360/) | wind light calm soft breeze，1:16。ep10 起用（第 19、23 集也會用）。目前用 Freesound 試聽版（mp3 128kbps）轉 wav，之後可換原檔；換檔不影響 TTS 快取，--offline 重新組裝即可。**Freesound 需登入才能下載原檔** |
+| 落葉 | `leaves_rustle.wav` | CC0 | Borgory | [Freesound #751473](https://freesound.org/people/Borgory/sounds/751473/) | Soft Wind in the Trees - Leaves rustle，2:27。ep10 用。`screen_audio.py` 在 42.7、103–105 秒有幾個低頻（30–150 Hz）的風壓起伏，不是鳥叫或碰撞聲。目前用 Freesound 試聽版（mp3 128kbps）轉 wav，之後可換原檔；換檔不影響 TTS 快取，--offline 重新組裝即可。**Freesound 需登入才能下載原檔** |
+| 小雨 | `rain_light.wav` | CC0 | felix.blume | [Freesound #512334](https://freesound.org/people/felix.blume/sounds/512334/) | Light rain in a field of bananas trees（墨西哥 Veracruz），原長 10 分鐘，取 190–490 秒共 5 分鐘：`screen_audio.py` 在 134.3 秒有一個 +20.5 dB、音高很強的聲音（像鳥叫），這段之後幾乎沒有突發聲。錄音描述是雨落在香蕉葉上（還沒試聽）。ep11 用。目前用 Freesound 試聽版（mp3 128kbps）轉 wav，之後可換原檔（同樣取 190–490 秒）；換檔不影響 TTS 快取，--offline 重新組裝即可。**Freesound 需登入才能下載原檔** |
 
 ## 放慢的環境音（自製，不進版控）
 
@@ -67,6 +60,10 @@ ep03 第二次生成（2026-10-05）的 `<yawn>` 都只念成一小口氣，聽�
 | `yawn_narrator.wav`（哈欠旁白） | 358.70–360.10 秒（「又打了一個小小的哈欠」之後） | -1.4 dB |
 
 音量調整 = 新版同一角色說話的音量 − 舊版同一角色說話的音量（只算有聲音的 20ms 格），讓哈欠跟新版的台詞一樣大聲。處理：ffmpeg `atrim`、`volume`、淡入 0.03 秒、淡出 0.08 秒、升取樣到 24kHz。舊版有混背景，所以哈欠底下帶著約 -50 dB 的蟲鳴。
+
+## 「晚安，為什麼森林」（自製，進版控）
+
+ep11 旁白把結尾的「晚安，為什麼森林。」念成「晚安為森森林」，還拖到 4.5 秒。ep10 同一個聲音、同一句台詞、同一個 style 念對了，所以從 ep10 的人聲軌（`build/ep10_leaves.wav`，24kHz）照 `build/ep10_leaves.timeline.json` 最後一句的秒數（486.595–489.075）切出 `narrator_goodnight_forest.wav`（腳本名稱 `晚安森林`，2.48 秒），不調音量。在 ep11 旁白批次的人工切點檔寫一行只有 `音效:晚安森林`，整句換掉。語音辨識核對的就是這段錄音（「晚安為什麼森林」）。之後哪一集又念錯，也可以照樣換。
 
 Wikimedia Commons 的檔案：在頁面上點「Download」或「Original file」即可下載，不用登入。
 

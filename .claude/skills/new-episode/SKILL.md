@@ -87,6 +87,7 @@ argument-hint: "[題目（可省略，省略就自動選題）]"
    先離線查原因（不花額度）：對那個批次音檔跑 `transcribe_chars`、`_silent_runs`，看是切不開還是模型念錯（ep04 棉棉把一句念了兩次）。音檔本身可用時，可以提議寫人工切點 `build/segments/<批次檔名>.cuts.txt`（見 CLAUDE.md），每段要單獨辨識確認內容，再用 `--offline` 組裝。
 3. 生成後檢查：
    - **句尾的吸氣聲**：`PYTHONUTF8=1 py tools/trim_tails.py episodes/epNN_xxx.md`。Gemini 會在下一句之前吸一口氣（跟說話差不多大聲），自動切句常把它分到上一句的句尾（ep07、ep08 都有，使用者聽到會覺得像哈欠或喘氣）。有列出可以剪的句子，就加 `--write` 寫切點檔，再 `--offline` 重新組裝（人工切點會逐句核對內容，不花額度），在製作備註記下剪了哪幾句。列為「不剪，請用耳朵聽」的句子放進試聽清單。
+   - **逐句辨識核對**：對每個角色批次自動切出來的每一句單獨跑 `transcribe_chars`，跟台詞比對。整批一起辨識時 Whisper 可能把模型重複念的句子吃掉，對齊「成功」但重複的那次留在下一句開頭（ep11 咕咕爺爺）。有重複或多念的，寫人工切點檔跳過，再 `--offline` 組裝。
    - 輸出裡 `[音效 吸氣1]`、`[音效 吸氣2]` 的自動剪切結果。顯示「不剪」的，要告訴使用者原因。
    - 後段（栗栗、棉棉互道晚安之後）有沒有比中段大聲：量 `build/epNN_xxx.wav` 各句的 RMS，後段應該比中段小或差不多。
    - mp3 的響度約 -16 LUFS、真峰值 ≤ -1 dBTP：`ffmpeg -i build/epNN_xxx.mp3 -af ebur128=framelog=quiet:peak=true -f null -`
