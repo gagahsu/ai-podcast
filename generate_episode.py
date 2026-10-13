@@ -117,6 +117,8 @@ SOUNDS = {
     # ep11 栗栗念的「棉棉，晚安……」（ep12 念成「咪咪晚安」），用法同上。原始批次切出來，沒調過音量，
     # 換進去之後一樣會套用 CHAR_GAIN_DB 和 [音量]
     "晚安棉棉": ("lili_goodnight_mianmian.wav", None),
+    # ep12 咕咕爺爺念的「晚安，栗栗。」（ep13 那次使用者試聽覺得怪），用法同上
+    "晚安栗栗": ("gugu_goodnight_lili.wav", None),
     # 沖繩大冒險用素材
     "沖繩冒險": ("okinawa_adventure_bgm.mp3", -20),
     "水滴泡泡": ("sfx_bubbles.wav", -18),
