@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import wave
 from array import array
 from pathlib import Path
@@ -454,6 +455,17 @@ class TestSounds(unittest.TestCase):
         a = array("h", ep.pcm)
         levels = [rms_db(a[int((s + 0.1) * R):int((e - 0.1) * R)]) for s, e in speech]
         for got, want in zip(levels, [0, -6, -6, 0]):
+            self.assertAlmostEqual(got - levels[0], want, delta=0.1)
+
+    def test_character_gain_adds_to_volume_marker(self):
+        # CHAR_GAIN_DB：角色固定增益，跟 [音量] 疊加
+        items = self.parse("@旁白 一。\n@栗栗 二。\n[音量 -2dB]\n@栗栗 三。\n@旁白 四。\n")
+        lines = [k for k, i in enumerate(items) if i[0] == "line"]
+        with mock.patch.dict(g.CHAR_GAIN_DB, {"栗栗": -4.0}, clear=True):
+            ep, _, _, speech = g.assemble(items, {k: g.Audio(tone(1), R) for k in lines}, R, None)
+        a = array("h", ep.pcm)
+        levels = [rms_db(a[int((s + 0.1) * R):int((e - 0.1) * R)]) for s, e in speech]
+        for got, want in zip(levels, [0, -4, -6, -2]):
             self.assertAlmostEqual(got - levels[0], want, delta=0.1)
 
     def test_trim_replaces_line_tail(self):

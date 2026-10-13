@@ -102,7 +102,9 @@
 [停頓 3秒]
 @旁白 {very slow, almost whispering} 風，慢慢地安靜了。樹葉，也慢慢地安靜了。
 [停頓 4秒]
+[音量 -3dB]
 @旁白 {very slow, almost whispering} 栗栗的眼睛，慢慢地，閉起來了。
+[音量 0dB]
 [停頓 4秒]
 @咕咕爺爺 {whispering, very tender} 晚安，栗栗。
 [停頓 5秒]
@@ -110,6 +112,7 @@
 ## 六、結尾儀式（每集固定）
 
 [背景 搖籃曲]
+[音量 -3dB]
 @旁白 {very soft, very slow} 今天的為什麼，我們找到答案了。
 [停頓 3秒]
 @旁白 {very soft, very slow} 現在，換你閉上眼睛。小魚和你，一起睡覺。

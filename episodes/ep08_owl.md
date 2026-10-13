@@ -99,10 +99,15 @@
 
 @旁白 {slowing down, softer} 栗栗和棉棉，打了一個小小的哈欠。<yawn> 眼皮，慢慢地變得好睏。
 [停頓 2秒]
+[音量 -4dB]
 @棉棉 {very sleepy, soft} 栗栗，晚安……
+[音量 0dB]
 [停頓 2秒]
+[音量 -3dB]
 @栗栗 {very sleepy, soft} 棉棉，晚安……
+[音量 0dB]
 [停頓 2秒]
+[音量 -3dB]
 @旁白 {slower, softer} 棉棉慢慢地走回草叢裡的家。栗栗爬回橡樹的樹洞裡，把尾巴捲起來，當作小被子。
 [停頓 3秒]
 @旁白 {slower, softer} 最高的樹枝上，咕咕爺爺的大眼睛，靜靜地，看著森林。
@@ -112,6 +117,7 @@
 @旁白 {very slow, almost whispering} 風，慢慢地安靜了。樹葉，也慢慢地安靜了。
 [停頓 4秒]
 @旁白 {very slow, almost whispering} 栗栗在樹洞裡，眼睛，慢慢地，閉起來了。
+[音量 0dB]
 [停頓 4秒]
 @咕咕爺爺 {whispering, very tender} 晚安，栗栗。
 [停頓 5秒]
@@ -119,6 +125,7 @@
 ## 六、結尾儀式（每集固定）
 
 [背景 搖籃曲]
+[音量 -3dB]
 @旁白 {very soft, very slow} 今天的為什麼，我們找到答案了。
 [停頓 3秒]
 @旁白 {very soft, very slow} 現在，換你閉上眼睛。咕咕爺爺在大樹上，輕輕地陪著你。

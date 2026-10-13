@@ -72,6 +72,10 @@ CHARACTERS = {
     "許奈娥": ("Aoede", "5-year-old sweet, cheerful, imaginative girl, storytelling to classmates, cute and expressive"),
 }
 
+# 角色固定增益（dB），組裝時跟 [音量] 疊加，不影響快取鍵。
+# 栗栗（Leda）每集都比旁白大聲 3–7 dB，style 寫輕一點也沒用（ep02–ep11 實測，2026-10）。
+CHAR_GAIN_DB = {"栗栗": -3.0}
+
 DEFAULT_RATE = 24000  # Gemini TTS 輸出的取樣率（若回傳 WAV，會以檔頭為準）
 API_TIMEOUT_SEC = 300  # 一個批次的請求最多等多久（整批旁白約 2 分鐘的音訊，正常一兩分鐘內就回來）
 LINE_GAP_SEC = 0.6    # 每句之間的預設間隔
@@ -978,7 +982,8 @@ def assemble(items, rendered, rate, insert_pcm):
             pcm += b"\x00\x00" * int(rate * item[1])
         elif item[0] == "line":
             start = now()
-            last_line = rendered[i] if not vol else scale(rendered[i], vol)
+            db = vol + CHAR_GAIN_DB.get(item[1], 0.0)
+            last_line = rendered[i] if not db else scale(rendered[i], db)
             pcm += last_line.pcm
             speech.append((start, now()))
             pcm += b"\x00\x00" * int(rate * LINE_GAP_SEC)

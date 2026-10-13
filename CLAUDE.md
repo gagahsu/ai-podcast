@@ -55,7 +55,7 @@ PYTHONPATH=tests/fake python generate_episode.py episodes/ep01_moon.md --rpm 600
 - `inspect_batches`：`--inspect`，列出批次音檔的靜音長度，除錯用，不呼叫 API。
 - `tools/trim_tails.py`：生成後檢查句尾。Gemini 在下一句之前會大聲吸一口氣，自動切句常把它分到上一句句尾（ep07 使用者聽到像哈欠或喘氣，ep08 一集 7 句）。工具找出「最後一個字 → 安靜 → 一小段大聲的聲音」的句子，`--write` 寫成人工切點檔，句尾剪到念完；判斷靠語音辨識的最後一個字跟台詞同音（不比聲調），分不清就不剪。已有切點檔的批次只檢查不改寫，標「人耳確認」的句子跳過。`auto_split`／`batch_request` 是為了它從 `synthesize_batch` 抽出來的，自動切出來的每段有 `start`（在批次音檔裡的起點）。
 - 音效與背景：`SOUNDS`：名稱 → (assets/ 裡的檔名, 相對人聲 dB)。`measure_lufs` 先量素材響度，所以 dB 跟素材原本多大聲無關。
-  - `assemble`：插入型 `[音效 X]` 直接接進人聲軌；同時記下疊加音效、背景區段、說話區間的秒數。`[音量 -NdB]` 讓之後的台詞都調整 N dB（直到下一個 `[音量]`），只在組裝時處理，不影響快取鍵。用在 Gemini 把該輕的段落念得比較大聲時（ep06 後段比中段大 6–8 dB，style 寫 softer 也沒用）。
+  - `assemble`：插入型 `[音效 X]` 直接接進人聲軌；同時記下疊加音效、背景區段、說話區間的秒數。`[音量 -NdB]` 讓之後的台詞都調整 N dB（直到下一個 `[音量]`），只在組裝時處理，不影響快取鍵。用在 Gemini 把該輕的段落念得比較大聲時（ep06 後段比中段大 6–8 dB，style 寫 softer 也沒用）。`CHAR_GAIN_DB` 是角色固定增益，跟 `[音量]` 疊加：栗栗（Leda）每集都比旁白大 3–7 dB，2026-10-13 起固定 -3 dB，ep01–ep11 一起重新輸出；ep02–ep11 同時用 `[音量]` 修了個別句子、後段和結尾（目標：栗栗約 -15、後段和結尾約 -19～-20，量法是人聲軌每句有聲框的平均功率）。新的一集栗栗如果還是太大聲，在那句加 `[音量]`，不要再改 `CHAR_GAIN_DB`（會改到所有已上架的集數）。
   - `mix`：ffmpeg `adelay` 定位、`amix normalize=0`。背景的 ducking 用 `volume` 運算式（`duck_expr`），**前面一定要有 `asetnsamples`**，否則 frame 太大，運算式約 0.5 秒才更新一次。
   - `export_mp3`：量整集響度 → 同一個固定增益 → 升取樣到 96kHz 再用 `alimiter` 壓峰值。**不要用 `loudnorm`**：Gemini 配音峰值本來就約 +0.6 dBTP，loudnorm 的 linear 模式做不到，會退回動態模式，在停頓時把背景拉大聲（ep02 實測）。不升取樣的話，mp3 真峰值會超過 0 dB。
   - ffmpeg 一律經過 `find_ffmpeg`，不要寫死 `"ffmpeg"`：這台電腦的 PATH 上有 miniconda 附的 4.3（Bash 工具會先找到它），不支援 `ebur128=framelog=quiet`、`amix normalize`。`find_ffmpeg` 依 PATH 順序用 `FFMPEG_PROBE` 試跑，挑第一個能用的；`.env` 設 `FFMPEG` 就只用那一個。用到新的濾鏡或選項時，要加進 `FFMPEG_PROBE`。
