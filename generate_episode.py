@@ -114,6 +114,9 @@ SOUNDS = {
     # ep10 旁白念的「晚安，為什麼森林。」（念得正確的一次），在人工切點檔用「音效:晚安森林」整句換掉念錯的版本。
     # 本來就是同一個角色的說話音量，所以是 None（做法見 assets/SOURCES.md）
     "晚安森林": ("narrator_goodnight_forest.wav", None),
+    # ep11 栗栗念的「棉棉，晚安……」（ep12 念成「咪咪晚安」），用法同上。原始批次切出來，沒調過音量，
+    # 換進去之後一樣會套用 CHAR_GAIN_DB 和 [音量]
+    "晚安棉棉": ("lili_goodnight_mianmian.wav", None),
     # 沖繩大冒險用素材
     "沖繩冒險": ("okinawa_adventure_bgm.mp3", -20),
     "水滴泡泡": ("sfx_bubbles.wav", -18),
