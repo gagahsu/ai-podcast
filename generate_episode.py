@@ -111,13 +111,13 @@ SOUNDS = {
     "哈欠栗栗": ("yawn_lili.wav", None),
     "哈欠咕咕爺爺": ("yawn_gugu.wav", None),
     "哈欠旁白": ("yawn_narrator.wav", None),
-    # ep10 旁白念的「晚安，為什麼森林。」（念得正確的一次），在人工切點檔用「音效:晚安森林」整句換掉念錯的版本。
-    # 本來就是同一個角色的說話音量，所以是 None（做法見 assets/SOURCES.md）
+    # 結尾「晚安，為什麼森林。」的樣板：ep02 旁白念的那次（使用者選的），ep03 起每集都在旁白批次的
+    # 人工切點檔用「音效:晚安森林」整句換掉。原始批次切出來，沒調過音量，所以是 None（做法見 assets/SOURCES.md）
     "晚安森林": ("narrator_goodnight_forest.wav", None),
     # ep11 栗栗念的「棉棉，晚安……」（ep12 念成「咪咪晚安」），用法同上。原始批次切出來，沒調過音量，
     # 換進去之後一樣會套用 CHAR_GAIN_DB 和 [音量]
     "晚安棉棉": ("lili_goodnight_mianmian.wav", None),
-    # ep12 咕咕爺爺念的「晚安，栗栗。」（ep13 那次使用者試聽覺得怪），用法同上
+    # 咕咕爺爺「晚安，栗栗。」的樣板：ep10 那次（剪掉前面的嘆氣），ep03 起每集都換成這個，用法同上
     "晚安栗栗": ("gugu_goodnight_lili.wav", None),
     # 沖繩大冒險用素材
     "沖繩冒險": ("okinawa_adventure_bgm.mp3", -20),

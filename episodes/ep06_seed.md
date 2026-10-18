@@ -127,6 +127,7 @@
 @旁白 {very soft, very slow} 現在，換你閉上眼睛。和泥土裡的小種子，一起睡覺。
 [停頓 3秒]
 [背景 停]
+[音量 -3dB]
 @旁白 {very soft, very slow, drawn out} 晚安，為什麼森林。
 [停頓 3秒]
 
@@ -181,3 +182,4 @@
 - 松鼠秋天把堅果一顆一顆分散埋起來（分散貯藏），大部分會找回來（灰松鼠的研究約 95%），但埋得遠、沒被挖回來的，常常長成下一代橡樹。來源：Northern Woodlands〈Nuts for Acorns〉https://northernwoodlands.org/outside_story/article/nuts-for-acorns ；National Wildlife Federation〈When Nature Goes Nuts〉https://www.nwf.org/Magazines/National-Wildlife/1999/When-Nature-Goes-Nuts
   - 腳本只讓栗栗「忘記了一顆」，沒有說松鼠很健忘；咕咕爺爺只說「大橡樹以前也是一顆小小的橡實」，沒有說是誰埋的。
 - 橡樹要長很多年才會長大。腳本只說「很久很久以前」「一天一天，慢慢長大」，沒有給年數。
+- 2026-10-18 整季統一兩句樣板（見 `assets/SOURCES.md`）：結尾「晚安，為什麼森林。」換成 ep02 那次（旁白批次切點檔最後一行 `音效:晚安森林`，前面加 `[音量 -3dB]`，跟 ep02 一樣大聲），咕咕爺爺「晚安，栗栗。」換成 ep10 那次（咕咕爺爺批次切點檔最後一行 `音效:晚安栗栗`）。其他句子照原本的位置，`--offline` 重新輸出。

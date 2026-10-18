@@ -128,6 +128,7 @@
 @旁白 {very soft, very slow} 現在，換你閉上眼睛。和手心裡的小螢火蟲，一起睡覺。
 [停頓 3秒]
 [背景 停]
+[音量 -3dB]
 @旁白 {very soft, very slow, drawn out} 晚安，為什麼森林。
 [停頓 3秒]
 
@@ -179,3 +180,4 @@
 - 螢火蟲需要黑暗：人造光會干擾牠們看見彼此的閃光，光害是螢火蟲面臨的第二大威脅（僅次於棲地消失）。來源：DarkSky International〈Fireflies Need the Dark to Talk with Light〉https://darksky.org/news/fireflies-need-the-dark-to-talk-with-light/ ；PMC 研究〈Artificial light impacts the mate success of female fireflies〉https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9364009/
 - 台灣約有 65 種螢火蟲，3 到 5 月是春季主要賞螢期（不同種類四季都有）。來源：農業部農村發展及水土保持署「農業易遊網」螢火蟲季 https://ezgo.ardswc.gov.tw/fireflyseason/Home/About 。只用在節目說明的爸媽小提醒，腳本沒有提。
 - 腳本沒有寫：螢火蟲其實是甲蟲、不是蒼蠅；幼蟲也會發光；有些幼蟲住在水裡。很有趣，但會變成新的「驚喜」，可以放在節目說明延伸。
+- 2026-10-18 整季統一兩句樣板（見 `assets/SOURCES.md`）：結尾「晚安，為什麼森林。」換成 ep02 那次（旁白批次切點檔最後一行 `音效:晚安森林`，前面加 `[音量 -3dB]`，跟 ep02 一樣大聲），咕咕爺爺「晚安，栗栗。」換成 ep10 那次（咕咕爺爺批次切點檔最後一行 `音效:晚安栗栗`）。其他句子照原本的位置，`--offline` 重新輸出。

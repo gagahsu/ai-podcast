@@ -129,6 +129,7 @@
 @旁白 {very soft, very slow} 現在，換你閉上眼睛。給自己一個輕輕的抱抱，一起睡覺。
 [停頓 3秒]
 [背景 停]
+[音量 -3dB]
 @旁白 {very soft, very slow, drawn out} 晚安，為什麼森林。
 [停頓 3秒]
 
@@ -198,3 +199,4 @@
   - 研究對象是成人，還沒有兒童的同類研究；腳本說「身體也會覺得，安心一點喔」，用「一點」不誇大。小實驗的兩種姿勢之一就是研究用的姿勢。
 - 小兔子寶寶擠在一起睡：剛出生的兔寶寶沒辦法自己維持體溫，會在窩裡擠成一團取暖，外圍的寶寶會慢慢往中間鑽。來源：〈Private Heat for Public Warmth: How Huddling Shapes Individual Thermogenic Responses of Rabbit Pups〉*PLoS ONE* (2012) https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3306396/
   - 腳本說「大家靠在一起，暖暖的，就睡得好好的」，研究講的是保暖，「睡得好好的」是故事的說法。
+- 2026-10-18 整季統一兩句樣板（見 `assets/SOURCES.md`）：結尾「晚安，為什麼森林。」換成 ep02 那次（旁白批次切點檔最後一行 `音效:晚安森林`，前面加 `[音量 -3dB]`，跟 ep02 一樣大聲），咕咕爺爺「晚安，栗栗。」換成 ep10 那次（咕咕爺爺批次切點檔最後一行 `音效:晚安栗栗`）。其他句子照原本的位置，`--offline` 重新輸出。
