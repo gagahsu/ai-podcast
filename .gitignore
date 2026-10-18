@@ -26,3 +26,5 @@ assets/*
 # 共用片段（開場、放鬆、咕咕爺爺登場）的配音快取，生成一次就固定用，進版控
 !assets/shared/
 !assets/shared/*.wav
+!assets/shared_en/
+!assets/shared_en/*.wav

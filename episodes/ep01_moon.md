@@ -188,3 +188,7 @@
   - 腳本說「月亮一點都沒有動」是孩子在想像實驗裡的感受；精確地說是「看起來幾乎沒有動」，咕咕爺爺的解釋也用「看起來」。
 - 步行到月球的時間：月球平均距離約 38.4 萬公里；若以成年人/步行者每小時 5 公里、24 小時不間斷行走計算：384,400 / 5 = 76,880 小時 = 約 3,203 天 = 約 8.77 年。腳本取整說「差不多九年」，準確且孩子易懂。
 - 音量（2026-10-13）：栗栗改由程式固定 -3 dB（`CHAR_GAIN_DB`，ep02–ep11 的栗栗都太大聲）。這集栗栗有幾句本來就輕聲（月亮是不是想跟我們回家、月亮為什麼一直跟著我們走、山好像只動了一點點、月亮不是在追著我跑、棉棉晚安），扣了之後只剩 -21～-24 dB，各加 `[音量 +3dB]` 補回原本的音量。
+
+**著色畫提示詞（Coloring page prompt）**
+畫面：栗栗和棉棉坐在小路邊，抬頭看圓圓的月亮，旁邊有一朵小白花，遠方有一座山
+> Black and white coloring page for kids aged 3–6, clean thick black outlines, no shading, no gray, no filled black areas, pure white background, large simple shapes that are easy to color, cute storybook style. Portrait 4:5. A small squirrel with a big curly fluffy tail, pointed ears with little tufts, big round eyes, smiling, and a small fluffy bunny with long upright ears, round body, big round eyes, sitting, side by side on a little forest path, both looking up at a big round full moon in the sky. Next to them, one small simple flower with five petals. Far away in the background, one gentle rounded mountain. A few simple trees at the edges, a few small stars, some grass. Keep the characters large and the background simple. No text, no letters, no numbers anywhere. Use the attached character sheet as reference for the characters' look.

@@ -9,7 +9,7 @@ argument-hint: "[集數或集名，例如 1 或 ep01_moon；省略就做下一�
 英文版是**同一個 podcast 頻道**裡的另一個語言版本：同一題、同一個集數，故事照中文版逐句翻譯。主要聽眾是**學英文的台灣孩子**（也要讓英語母語的孩子聽得自然）。其他規則都在這份 skill 和 CLAUDE.md 裡，不要叫使用者補資料；判斷不了的先依原則決定，在摘要裡說明。
 
 **已定案的設定（使用者決定的，不要改）**
-- 節目名 **Why Forest**；角色名音譯：栗栗 **Lili**（小松鼠）、棉棉 **Mianmian**（小兔子）、咕咕爺爺 **Grandpa Gugu**（貓頭鷹）。
+- 節目名 **Why Forest**；角色名音譯：栗栗 **Lili**（小松鼠）、棉棉 **Mumu**（小兔子；念 MOO-moo。原本音譯 Mianmian，英文念起來太奇怪，使用者 2026-10-18 改成 Mumu）、咕咕爺爺 **Grandpa Gugu**（貓頭鷹）。 代名詞：Lili、Mumu 用 **she/her**，Grandpa Gugu 用 he（使用者 2026-10-18 定的；中文版沒寫性別）。
 - 聲音跟中文版一樣（`CHARACTERS` 不變，腳本裡的角色名照寫中文 `@旁白`、`@栗栗`…）。
 - 標題：`[EN] Why Forest｜Episode N: <英文問題>`（中文版是 `[CHT] 為什麼森林｜第 N 集：<問題>`）。
 - 週二、五發的東西**全英文**：podcast 節目說明（只寫總結，格式照已上架的 ep01）、Reel、Reel 貼文。Reel 跟中文 Reel 發在同一個帳號。週六的單字卡貼文例外，用中文說明（給台灣家長看）。
@@ -42,7 +42,7 @@ argument-hint: "[集數或集名，例如 1 或 ep01_moon；省略就做下一�
 - **逐句翻譯：句數、順序、說話的角色都跟中文版一樣**（`tools/bilingual.py` 會檢查，對不上就停下來）。中文一句太長時，用逗號和句號在同一句裡分成短句，不要拆成兩句。
 - style `{…}` 照抄。拿掉只對中文有用的提示（例如 `pronounce 抱抱 as bào bào`）；改了 style 那個角色的快取會不同，但英文版本來就是新的一批，沒關係。
 - 聲音標記（`<chuckle>`、`<yawn>`、`<long pause>` 等）照原本的位置放。
-- 角色在台詞裡的名字用 Lili、Mianmian、Grandpa Gugu；第一次出場時可以加說明（Lili the little squirrel）。
+- 角色在台詞裡的名字用 Lili、Mumu、Grandpa Gugu；第一次出場時可以加說明（Lili the little squirrel）。
 
 **用字：學英文的台灣孩子聽得懂**
 - 常見、具體的字（國小課本程度），短句，一句不超過 12 個字左右；時態以現在式和過去式為主。
@@ -97,7 +97,7 @@ argument-hint: "[集數或集名，例如 1 或 ep01_moon；省略就做下一�
    - example **一定要是腳本裡真的有的句子**（可以只取那句的一部分），孩子在故事裡聽得到。
    - 中文意思用這句裡的意思，台灣用語。
 3. **在地化紀錄**（第二步）。
-4. **試聽時要特別注意的字**：名字（Mianmian、Gugu 可能念成奇怪的音）、這集的生字。
+4. **試聽時要特別注意的字**：名字（Mumu 可能念成 MUH-muh、Gugu 可能念成奇怪的音）、這集的生字。
 
 ## 第四步：dry-run，然後停下來
 
@@ -117,7 +117,7 @@ argument-hint: "[集數或集名，例如 1 或 ep01_moon；省略就做下一�
 照 `/new-episode` 第六步做（`.claude/skills/new-episode/SKILL.md`），差別只有：
 
 - 指令換成英文腳本：`PYTHONUTF8=1 py generate_episode.py episodes/en/epNN_xxx_en.md`。同樣**不要先用 `--limit`**；切句失敗**不要自動 `--fallback`**。
-- 語音辨識用英文、以單字比對（程式依檔名自動切換）。名字很容易被聽成別的字（Lili → Lily、Mianmian → Mian Mian／me and me、Gugu → Google），只差一兩個字在容許範圍內；切句失敗時先離線看是不是名字造成的，不要直接重新生成。
+- 語音辨識用英文、以單字比對（程式依檔名自動切換）。名字很容易被聽成別的字（Lili → Lily、Mumu → moo moo、Gugu → goo goo／Google；程式的 `EN_NAME_ALIASES` 會換回名字再比對），只差一兩個字在容許範圍內；切句失敗時先離線看是不是名字造成的，不要直接重新生成。
 - `tools/trim_tails.py` 一樣要跑（英文版比的是最後一個英文單字）。
 - 逐句辨識核對一樣要做：對每個角色批次自動切出來的每一句單獨跑 `transcribe_chars`（`g.set_lang(腳本)` 之後再呼叫），看有沒有重複、多念、漏念。
 - 中文版的替換錄音（`晚安森林`、`晚安棉棉`、`晚安栗栗`）是中文，**不能用**。哈欠錄音（`哈欠*`）是同一個角色的聲音，`<yawn>` 念得不好時可以照中文版的做法換進去，但要先問使用者。

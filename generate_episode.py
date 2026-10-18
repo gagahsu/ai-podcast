@@ -566,9 +566,23 @@ def _en_words(text):
     return EN_WORD_RE.findall(text)
 
 
+# 英文版：角色名常被語音辨識聽成別的字（ep01 英文版 Gugu → goo goo），
+# 比對前先換回名字。只用在比對（_units），不影響對齊時間點和快取鍵。
+EN_NAME_ALIASES = [
+    (re.compile(r"\b(?:goo goo|gu gu|google|googoo)\b"), "gugu"),
+    (re.compile(r"\b(?:moo moo|mu mu|moomoo|mumu's|moo-moo)\b"), "mumu"),
+    (re.compile(r"\b(?:lily|lilly|lee lee)\b"), "lili"),
+]
+
+
 def _units(text):
-    """比對用的單位：中文是每字的拼音（見 _sounds），英文是小寫單字。"""
-    return _en_words(text) if LANG == "en" else _sounds(_norm(text))
+    """比對用的單位：中文是每字的拼音（見 _sounds），英文是小寫單字（名字的常見誤聽換回名字）。"""
+    if LANG != "en":
+        return _sounds(_norm(text))
+    joined = " ".join(_en_words(text))
+    for pattern, name in EN_NAME_ALIASES:
+        joined = pattern.sub(name, joined)
+    return joined.split()
 
 
 def _heard(chars):

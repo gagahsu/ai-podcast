@@ -20,7 +20,7 @@
 
 - 同一個 podcast 頻道、同一個集數。標題：中文 `[CHT] 為什麼森林｜第 N 集：<問題>`，英文 `[EN] Why Forest｜Episode N: <英文問題>`。改格式時，`/new-episode`、`/en-episode`、forestreels 的 `make-props.mjs` 貼文樣板要一起改。
 - 主要聽眾是學英文的台灣孩子：用字簡單、短句；雙關語和文化梗要在地化改寫。節目說明只寫總結（格式照已上架的 ep01，樣板在兩個 skill 的第三步）。週二、五的英文 podcast 節目說明、英文 Reel 和 Reel 貼文全英文；週六單字卡的貼文用中文說明（給台灣家長）。
-- 節目名 Why Forest；角色名音譯 Lili、Mianmian、Grandpa Gugu；聲音跟中文版一樣（腳本裡的角色名照寫中文 `@旁白` 等）。
+- 節目名 Why Forest；角色名 Lili、Mumu（棉棉，原本的音譯 Mianmian 太難念，改成 Mumu）、Grandpa Gugu；代名詞 Lili、Mumu 用 she，Grandpa Gugu 用 he；聲音跟中文版一樣（腳本裡的角色名照寫中文 `@旁白` 等）。
 - 檔案：`episodes/en/epNN_xxx_en.md`（**檔名 `_en` 結尾**，程式靠它切換語言）、英文共用片段 `episodes/en/shared.md`（快取 `assets/shared_en/`，進版控）、英文 Reel 旁白 `episodes/en/reels_s1_en.md`。
 - 英文版逐句翻譯：句數、順序、角色跟中文版一樣。中文版生成後再改台詞，英文版要一起改。
 - 發布排程：週一、四中文 podcast＋Reel；週二、五英文 podcast＋Reel；週三中文著色畫貼文（兩集）；週六英文單字貼文（兩集，單字表寫在英文腳本的製作備註）。貼文都由使用者自己發，Claude 只產出檔案和文案。著色畫和單字貼文在 forestreels 用 `/weekly-posts` 做。

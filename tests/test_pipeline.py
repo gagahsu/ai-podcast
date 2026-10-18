@@ -689,7 +689,7 @@ EN_SCRIPT = """# Why Forest｜Episode 99: Why is the test green?
 [背景 夜晚蟲鳴]
 @旁白 {storytelling, warm, slow} The night was cool and quiet.
 [停頓 1秒]
-@栗栗 {curious} Mianmian, why is the grass green?
+@栗栗 {curious} Mumu, why is the grass green?
 [停頓 1秒]
 [共用 咕咕爺爺登場]
 @咕咕爺爺 {kind, chuckling} <chuckle> What a good question.
@@ -723,6 +723,14 @@ class TestEnglish(unittest.TestCase):
         self.assertEqual(g._en_words("<chuckle> Don’t worry, Lili!"), ["don't", "worry", "lili"])
         g.set_lang(self.script)
         self.assertEqual(g.text_size("<chuckle> What a good question."), 4)
+
+    def test_name_aliases(self):
+        g.set_lang(self.script)
+        self.assertEqual(g._units("grandpa goo goo grandpa google why"),
+                         g._units("Grandpa Gugu, Grandpa Gugu, why"))
+        self.assertEqual(g._units("moo moo look"), ["mumu", "look"])
+        self.assertEqual(g._units("good night lily"), ["good", "night", "lili"])
+        self.assertEqual(g._units("goodness"), ["goodness"])
 
     def test_english_shared_sections_match_chinese(self):
         zh, _ = g.expand_shared(g.parse_script(EPISODE_SFX))

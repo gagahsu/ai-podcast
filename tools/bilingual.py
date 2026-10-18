@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import generate_episode as g  # noqa: E402
 
-EN_NAMES = {"旁白": "Narrator", "栗栗": "Lili", "棉棉": "Mianmian", "咕咕爺爺": "Grandpa Gugu"}
+EN_NAMES = {"旁白": "Narrator", "栗栗": "Lili", "棉棉": "Mumu", "咕咕爺爺": "Grandpa Gugu"}
 
 
 def chinese_script(en_path):
