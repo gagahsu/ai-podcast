@@ -12,7 +12,18 @@
 
 ## 新的一集
 
-用專案 skill `/new-episode`（`.claude/skills/new-episode/SKILL.md`）：使用者只給題目，或什麼都不給讓 Claude 照 `episodes/TOPICS.md` 的季度規劃做下一集。skill 裡寫了完整流程（選題 → 腳本 → 查核 → 音效 → dry-run → 停下來等確認 → 生成 → 試聽清單）。改了腳本慣例或固定段落時，要同步更新 skill。
+用專案 skill `/new-episode`（`.claude/skills/new-episode/SKILL.md`）：使用者只給題目，或什麼都不給讓 Claude 照 `episodes/TOPICS.md` 的季度規劃做下一集。skill 裡寫了完整流程（選題 → 腳本 → 查核 → 音效 → dry-run → 停下來等確認 → 生成 → 試聽清單 → 試聽定案後做中文 Reel → 成品清單：mp3、節目說明、Reel＋貼文文案、週三著色畫的生圖提示詞）。英文版另外用 `/en-episode` 做，不在同一個流程裡（使用者選的：中文台詞定案後再翻）。改了腳本慣例或固定段落時，要同步更新 skill。
+
+## 英文版（Why Forest）
+
+用專案 skill `/en-episode`（`.claude/skills/en-episode/SKILL.md`）：把已生成的中文集數逐句翻成英文版，生成英文音檔，再到 forestreels 做英文 Reel。使用者定案的設定（不要自己改）：
+
+- 同一個 podcast 頻道、同一個集數。標題：中文 `[CHT] 為什麼森林｜第 N 集：<問題>`，英文 `[EN] Why Forest｜Episode N: <英文問題>`。改格式時，`/new-episode`、`/en-episode`、forestreels 的 `make-props.mjs` 貼文樣板要一起改。
+- 主要聽眾是學英文的台灣孩子：用字簡單、短句；雙關語和文化梗要在地化改寫。節目說明只寫總結（格式照已上架的 ep01，樣板在兩個 skill 的第三步）。週二、五的英文 podcast 節目說明、英文 Reel 和 Reel 貼文全英文；週六單字卡的貼文用中文說明（給台灣家長）。
+- 節目名 Why Forest；角色名音譯 Lili、Mianmian、Grandpa Gugu；聲音跟中文版一樣（腳本裡的角色名照寫中文 `@旁白` 等）。
+- 檔案：`episodes/en/epNN_xxx_en.md`（**檔名 `_en` 結尾**，程式靠它切換語言）、英文共用片段 `episodes/en/shared.md`（快取 `assets/shared_en/`，進版控）、英文 Reel 旁白 `episodes/en/reels_s1_en.md`。
+- 英文版逐句翻譯：句數、順序、角色跟中文版一樣。中文版生成後再改台詞，英文版要一起改。
+- 發布排程：週一、四中文 podcast＋Reel；週二、五英文 podcast＋Reel；週三中文著色畫貼文（兩集）；週六英文單字貼文（兩集，單字表寫在英文腳本的製作備註）。貼文都由使用者自己發，Claude 只產出檔案和文案。著色畫和單字貼文在 forestreels 用 `/weekly-posts` 做。
 
 ## 常用指令
 
@@ -28,7 +39,9 @@ PYTHONPATH=tests/fake python generate_episode.py episodes/ep01_moon.md --rpm 600
 
 `episodes/reels_s1.md` 不是一集節目，是給 forestreels 精華 Reel 用的旁白（13 集的開場提問＋共用片尾導流，對家長說話），只有旁白一批、整份 1 次 API，已生成。改任何字都要整批重新生成。
 
-`tests/fake/google/genai` 是假的 SDK，用 `FAKE_MODE=good|wav|long` 模擬不同回應。
+`tests/fake/google/genai` 是假的 SDK，用 `FAKE_MODE=good|wav|long` 模擬不同回應（英文台詞依單字數決定音訊長度）。
+
+`tools/bilingual.py episodes/en/epNN_xxx_en.md`：英文版和中文版逐句配對，寫出給使用者核對翻譯用的對照稿 `build/epNN_xxx_en.bilingual.txt`（不放進節目說明）；句數或角色順序對不上就停下來。
 
 ## 絕對不要做的事
 
@@ -52,6 +65,7 @@ PYTHONPATH=tests/fake python generate_episode.py episodes/ep01_moon.md --rpm 600
      **不要給 Whisper `initial_prompt`（台詞當提示）**：它會把提示續寫出來而不是聽音檔，開頭變亂碼。咕咕爺爺 12 句實測：有提示 1/4 對齊成功，沒提示 3/3，而且快 4 倍。換 medium 模型、開 VAD、關 `condition_on_previous_text` 都沒用。
   3. 都失敗 → 停下。
   - 人工切點：批次音檔旁放 `<批次檔名>.cuts.txt`（每行一句「開始秒 結束秒」；一行寫好幾組就接起來，可以剪掉句中不要的聲音），`manual_cuts` 就照它切，切完一樣經過 `check_pieces` 核對，不自動切、不花額度。用在音檔本身能用、但模型念錯的時候（ep04 棉棉把一句念了兩次，對齊必然失敗）。秒數由 Claude 用 `transcribe_chars`／`_silent_runs` 離線找出、對每段單獨辨識確認，再請使用者試聽。集數的切點檔在 `build/`（不進版控），共用片段的在 `assets/shared/`（進版控；ep04 時用它剪掉了 `<exhales>` 念出來的短吐氣聲，見 shared.md 說明），換了台詞或 style 快取鍵就變，舊的切點檔自然不會被用到。秒數後面寫 `人耳確認` 的那一行不做語音辨識核對，用在很輕的氣音（ep01 咕咕爺爺的「晚安，栗栗」被聽成「哇蜜蜜」「哇莉莉」，每次都不一樣）；**只有使用者親耳聽過、確認內容對了才能加**，Claude 不能自己判斷後加上。兩組秒數之間可以寫 `音效:名稱`（`SOUNDS` 裡的名稱），把那個音效接進句子裡、換掉模型念得不好的聲音標記；語音辨識核對只聽台詞部分（`speech_only`）。ep03 的 `<yawn>` 只念成一口氣，就是這樣換成舊版配音切出來的哈欠（`assets/yawn_*.wav`，見 SOURCES.md）。一行也可以只寫 `音效:名稱`、不寫秒數：整句換成那段錄音，語音辨識核對那段錄音本身（ep11 旁白把「晚安，為什麼森林」念成「為森森林」，換成 ep10 念對的那次，`assets/narrator_goodnight_forest.wav`）。**整批一起辨識時，Whisper 可能把模型重複念的句子吃掉**：ep11 咕咕爺爺把一句念了兩次，對齊「成功」、句子都對得上，重複的那次卻留在下一句開頭，是 `--offline` 重跑時逐句核對才發現的。生成後要對每個自動切出來的句子單獨辨識一次，句子明顯比台詞長的要特別看。
+- 語言：`set_lang(腳本)` 依檔名切換（`_en` 結尾＝英文），`main` 和 `tools/trim_tails.py` 一開始就呼叫。英文版的語音辨識用 `language="en"`，`transcribe_chars` 一個單字一筆，比對單位由 `_units` 決定（中文是每字的拼音、英文是小寫單字），長度估算用 `EN_WORDS_PER_SEC`，共用片段改用 `episodes/en/shared.md`／`assets/shared_en/`。**中文的處理和快取鍵完全沒變**；改這幾個函式時，中文和英文的測試都要過（`TestEnglish`）。直接呼叫 `transcribe_chars` 等函式做離線檢查時，英文版要先 `g.set_lang(腳本)`。
 - `inspect_batches`：`--inspect`，列出批次音檔的靜音長度，除錯用，不呼叫 API。
 - `tools/trim_tails.py`：生成後檢查句尾。Gemini 在下一句之前會大聲吸一口氣，自動切句常把它分到上一句句尾（ep07 使用者聽到像哈欠或喘氣，ep08 一集 7 句）。工具找出「最後一個字 → 安靜 → 一小段大聲的聲音」的句子，`--write` 寫成人工切點檔，句尾剪到念完；判斷靠語音辨識的最後一個字跟台詞同音（不比聲調），分不清就不剪。已有切點檔的批次只檢查不改寫，標「人耳確認」的句子跳過。`auto_split`／`batch_request` 是為了它從 `synthesize_batch` 抽出來的，自動切出來的每段有 `start`（在批次音檔裡的起點）。
 - 音效與背景：`SOUNDS`：名稱 → (assets/ 裡的檔名, 相對人聲 dB)。`measure_lufs` 先量素材響度，所以 dB 跟素材原本多大聲無關。

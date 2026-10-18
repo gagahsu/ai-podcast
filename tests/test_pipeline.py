@@ -77,6 +77,7 @@ def run(*args, mode="good", free="fake-free", paid="", assets=None, episode=EPIS
     tmp = tempfile.mkdtemp()
     if not assets and FAKE_ASSETS:
         shutil.rmtree(FAKE_ASSETS / "shared", ignore_errors=True)
+        shutil.rmtree(FAKE_ASSETS / "shared_en", ignore_errors=True)
     try:
         env = dict(os.environ, PYTHONPATH=str(FAKE), FAKE_MODE=mode, PYTHONIOENCODING="utf-8",
                    GEMINI_API_KEY=free, GEMINI_API_KEY_PAID=paid,
@@ -624,6 +625,7 @@ class TestSounds(unittest.TestCase):
 
 sys.path.insert(0, str(ROOT / "tools"))
 import trim_tails  # noqa: E402
+import bilingual  # noqa: E402
 
 
 class TestTrimTails(unittest.TestCase):
@@ -678,6 +680,126 @@ class TestTrimTails(unittest.TestCase):
             path.write_text(text, encoding="utf-8")
             pieces = g.manual_cuts(g.Audio(pcm, R), path, 2)
         self.assertEqual([round(p.seconds, 2) for p in pieces], [2.1, 3.0])
+
+
+EN_SCRIPT = """# Why Forest｜Episode 99: Why is the test green?
+
+[共用 開場]
+[共用 放鬆]
+[背景 夜晚蟲鳴]
+@旁白 {storytelling, warm, slow} The night was cool and quiet.
+[停頓 1秒]
+@栗栗 {curious} Mianmian, why is the grass green?
+[停頓 1秒]
+[共用 咕咕爺爺登場]
+@咕咕爺爺 {kind, chuckling} <chuckle> What a good question.
+[背景 停]
+"""
+
+
+class TestEnglish(unittest.TestCase):
+    """英文版（檔名 _en 結尾）：單字為單位比對、英文共用片段與快取、中文不受影響。"""
+
+    def setUp(self):
+        self.saved = (g.LANG, g.SHARED_SCRIPT, g.SHARED_DIR)
+        self.tmp = Path(tempfile.mkdtemp())
+        self.script = self.tmp / "ep99_test_en.md"
+        self.script.write_text(EN_SCRIPT, encoding="utf-8")
+
+    def tearDown(self):
+        g.LANG, g.SHARED_SCRIPT, g.SHARED_DIR = self.saved
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_lang_from_file_name(self):
+        g.set_lang(EPISODE)
+        self.assertEqual(g.LANG, "zh")
+        self.assertEqual(g.SHARED_SCRIPT, ROOT / "episodes" / "shared.md")
+        g.set_lang(self.script)
+        self.assertEqual(g.LANG, "en")
+        self.assertEqual(g.SHARED_SCRIPT, ROOT / "episodes" / "en" / "shared.md")
+        self.assertEqual(g.SHARED_DIR.name, "shared_en")
+
+    def test_words(self):
+        self.assertEqual(g._en_words("<chuckle> Don’t worry, Lili!"), ["don't", "worry", "lili"])
+        g.set_lang(self.script)
+        self.assertEqual(g.text_size("<chuckle> What a good question."), 4)
+
+    def test_english_shared_sections_match_chinese(self):
+        zh, _ = g.expand_shared(g.parse_script(EPISODE_SFX))
+        g.set_lang(self.script)
+        items, shared = g.expand_shared(g.parse_script(self.script))
+        self.assertEqual(len(shared), 9)   # 跟中文版一樣：開場 2、放鬆 6、咕咕爺爺登場 1
+        en_shared = g.shared_sections()
+        g.set_lang(EPISODE)
+        zh_shared = g.shared_sections()
+        strip = lambda sec: [it if it[0] != "line" else ("line", it[1]) for it in sec]
+        self.assertEqual({k: strip(v) for k, v in en_shared.items()},
+                         {k: strip(v) for k, v in zh_shared.items()},
+                         "英文版共用片段的標記和句數要跟中文版一致")
+
+    def split(self, texts, heard):
+        g.set_lang(self.script)
+        pcm = tone(2) + sil(1.0) + tone(3)
+        chars = []
+        for words, t0, t1 in ((heard[0], 0.0, 2.0), (heard[1], 3.0, 6.0)):
+            ws = g._en_words(words)
+            step = (t1 - t0) / len(ws)
+            chars += [(w, t0 + i * step, t0 + (i + 1) * step) for i, w in enumerate(ws)]
+        old, g.transcribe_chars = g.transcribe_chars, lambda audio: chars
+        try:
+            return g.split_with_whisper(g.Audio(pcm, R), texts)
+        finally:
+            g.transcribe_chars = old
+
+    TEXTS = ["Good night, Lili.", "First, look at the little white flower by the path."]
+
+    def test_whisper_split_by_words(self):
+        pieces, why = self.split(self.TEXTS, ["Good night, Lily.", "First look at the little white flower by the path"])
+        self.assertIsNotNone(pieces, why)
+        self.assertEqual(len(pieces), 2)
+
+    def test_shifted_content_is_rejected(self):
+        g.set_lang(self.script)
+        self.assertIsNone(g._content_mismatch(1, "good night lily", "Good night, Lili."))
+        self.assertIn("第 2 句", g._content_mismatch(
+            2, "good night lili", "First, look at the little white flower by the path."))
+
+    def test_dry_run_and_full_run_with_fake_sdk(self):
+        code, out = run("--dry-run", episode=self.script)
+        self.assertEqual(code, 0, out)
+        self.assertIn("英文版", out)
+        self.assertIn("個單字", out)
+        code, out = run(episode=self.script)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(list((FAKE_ASSETS / "shared_en").glob("batch_*.wav")))
+        self.assertFalse((FAKE_ASSETS / "shared").exists(), "英文版不能寫進中文的共用快取")
+
+
+class TestBilingual(unittest.TestCase):
+    """tools/bilingual.py：英文版逐句對照中文版；句數或角色順序不同就停下來。"""
+
+    ZH = "[共用 開場]\n@旁白 {warm} 晚上，風涼涼的。\n[停頓 1秒]\n@栗栗 {curious} 咕咕爺爺，<chuckle> 為什麼呢？\n"
+    EN = "[共用 開場]\n@旁白 {warm} The night was cool.\n[停頓 1秒]\n@栗栗 {curious} Grandpa Gugu, <chuckle> why?\n"
+
+    def pair(self, en, zh=ZH):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "x_en.md").write_text(en, encoding="utf-8")
+            (Path(d) / "x.md").write_text(zh, encoding="utf-8")
+            return bilingual.pair_lines(Path(d) / "x_en.md", Path(d) / "x.md")
+
+    def test_pairs_lines_without_tags_or_shared(self):
+        pairs = self.pair(self.EN)
+        self.assertEqual(pairs[1], ("栗栗", "Grandpa Gugu, why?", "咕咕爺爺，為什麼呢？"))
+        self.assertIn("Lili: Grandpa Gugu, why?\n栗栗：咕咕爺爺，為什麼呢？", bilingual.bilingual_text(pairs))
+
+    def test_mismatch_stops(self):
+        with self.assertRaises(SystemExit):
+            self.pair(self.EN.replace("@栗栗", "@棉棉"))
+        with self.assertRaises(SystemExit):
+            self.pair(self.EN + "@旁白 {warm} One more line.\n")
+
+    def test_chinese_script_name(self):
+        self.assertEqual(bilingual.chinese_script("episodes/en/ep01_moon_en.md"), ROOT / "episodes" / "ep01_moon.md")
 
 
 if __name__ == "__main__":

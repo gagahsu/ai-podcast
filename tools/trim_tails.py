@@ -15,7 +15,8 @@ ep07 使用者試聽時聽到（像哈欠或喘氣），ep08 一集就有 7 句�
 - 最後一個字之後要先安靜下來（連續 QUIET_SEC 秒低於 QUIET_DB），之後才又出現大於 LOUD_DB 的聲音
 - 那段聲音不能太長（MAX_BURST_SEC），太長可能是沒辨識到的台詞
 - 台詞以聲音標記結尾（例如 <yawn>）的不碰：句尾的聲音可能就是它
-已經有切點檔的批次只檢查、不改寫（可能是人工調過的）；共用片段（assets/shared/）不處理。
+已經有切點檔的批次只檢查、不改寫（可能是人工調過的）；共用片段（assets/shared/、assets/shared_en/）不處理。
+英文版腳本（檔名 _en 結尾）比的是最後一個英文單字。
 """
 import argparse
 import math
@@ -56,9 +57,10 @@ def find_tail(audio, text, chars):
         return None, None
     if not chars:
         return None, "辨識不到字，分不清句尾在哪"
-    want = g._sounds(g._norm(text))
-    heard = g._sounds(g._norm("".join(c for c, _, _ in chars)))
-    if not want or not heard or want[-1].rstrip("012345") != heard[-1].rstrip("012345"):
+    want = g._units(text)
+    heard = g._units(g._heard(chars))
+    tone = "012345" if g.LANG == "zh" else ""   # 中文不比聲調；英文直接比最後一個單字
+    if not want or not heard or want[-1].rstrip(tone) != heard[-1].rstrip(tone):
         return None, "辨識結果的最後一個字跟台詞對不上，分不清句尾在哪"
     lv = levels(audio)
     need = round(QUIET_SEC / FRAME_SEC)
@@ -98,6 +100,7 @@ def main():
     ap.add_argument("--write", action="store_true", help="寫入切點檔（預設只列出）")
     args = ap.parse_args()
 
+    g.set_lang(args.script)
     items, shared = g.expand_shared(g.parse_script(Path(args.script)))
     cache = Path("build/segments")
     line_idx = [i for i, it in enumerate(items) if it[0] == "line" and i not in shared]

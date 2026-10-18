@@ -177,6 +177,21 @@ VOL_RE = re.compile(r"^\[音量\s*([+-]?[\d.]+)\s*dB\]$", re.I)
 SHARED_SCRIPT = Path(__file__).resolve().parent / "episodes" / "shared.md"
 SHARED_DIR = Path(os.environ.get("SHARED_DIR") or ASSETS_DIR / "shared")
 
+# 語言：檔名以 _en 結尾的腳本（episodes/en/ep01_moon_en.md）是英文版，其他都是中文。
+# 英文版的共用片段是 episodes/en/shared.md，快取在 assets/shared_en/（跟中文分開，各自只生成一次）。
+# 語言只影響語音辨識和比對方式、長度估算、共用片段的位置，不影響快取鍵：中文的快取不會失效。
+LANG = "zh"
+EN_WORDS_PER_SEC = 2.2   # 英文睡前慢速朗讀大約每秒 2.2 個字（word）
+
+
+def set_lang(script_path):
+    """依腳本檔名設定語言（_en 結尾＝英文），英文版改用英文的共用片段與快取資料夾。"""
+    global LANG, SHARED_SCRIPT, SHARED_DIR
+    if Path(script_path).stem.endswith("_en"):
+        LANG = "en"
+        SHARED_SCRIPT = Path(__file__).resolve().parent / "episodes" / "en" / "shared.md"
+        SHARED_DIR = Path(os.environ.get("SHARED_DIR_EN") or ASSETS_DIR / "shared_en")
+
 
 def parse_script(path):
     """回傳項目清單：("line", 角色, 導演提示, 台詞)、("pause", 秒)、("sfx", 名稱, 是否疊上去)、
@@ -297,8 +312,15 @@ class Audio:
 TAG_RE = re.compile(r"<[^>]+>")
 
 
+def text_size(text):
+    """台詞長度：中文算字數，英文算單字數（word）。"""
+    if LANG == "en":
+        return len(_en_words(text))
+    return len(TAG_RE.sub("", text))
+
+
 def expected_seconds(texts):
-    return sum(len(TAG_RE.sub("", t)) for t in texts) / CHARS_PER_SEC
+    return sum(text_size(t) for t in texts) / (EN_WORDS_PER_SEC if LANG == "en" else CHARS_PER_SEC)
 
 
 # ---- 呼叫 API ------------------------------------------------------------
@@ -535,6 +557,25 @@ def _sounds(text):
     return [_sound(c) for c in _to_simplified(text)]
 
 
+EN_WORD_RE = re.compile(r"[a-z0-9]+(?:'[a-z0-9]+)*")
+
+
+def _en_words(text):
+    """英文台詞 → 小寫單字清單（去掉聲音標記和標點；縮寫 don't 算一個字）。"""
+    text = TAG_RE.sub(" ", text).lower().replace("’", "'").replace("‘", "'")
+    return EN_WORD_RE.findall(text)
+
+
+def _units(text):
+    """比對用的單位：中文是每字的拼音（見 _sounds），英文是小寫單字。"""
+    return _en_words(text) if LANG == "en" else _sounds(_norm(text))
+
+
+def _heard(chars):
+    """transcribe_chars 的結果接回文字（英文用空白隔開單字）。"""
+    return (" " if LANG == "en" else "").join(c for c, _, _ in chars)
+
+
 def _load_whisper():
     global _whisper
     if _whisper is None:
@@ -546,7 +587,7 @@ def _load_whisper():
 
 
 def transcribe_chars(audio):
-    """回傳 [(字, 開始秒, 結束秒), ...]，每個中文字一筆。
+    """回傳 [(字, 開始秒, 結束秒), ...]，每個中文字一筆；英文版是每個單字（小寫）一筆。
 
     不要給 initial_prompt：給了台詞當提示，Whisper 會把提示「續寫」出來而不是聽音檔，
     開頭就變亂碼（咕咕爺爺 12 句實測：有提示 1/4 對齊成功，沒提示 3/3，而且快 4 倍）。"""
@@ -556,13 +597,13 @@ def transcribe_chars(audio):
     if audio.rate != 16000:  # Whisper 需要 16kHz
         idx = np.arange(0, len(samples), audio.rate / 16000)
         samples = np.interp(idx, np.arange(len(samples)), samples).astype("float32")
-    segments, _ = model.transcribe(samples, language="zh", word_timestamps=True,
+    segments, _ = model.transcribe(samples, language=LANG, word_timestamps=True,
                                    vad_filter=False,
                                    condition_on_previous_text=True)
     chars = []
     for seg in segments:
         for w in seg.words or []:
-            t = _norm(w.word)
+            t = _en_words(w.word) if LANG == "en" else _norm(w.word)
             if not t:
                 continue
             step = (w.end - w.start) / len(t)
@@ -576,9 +617,14 @@ def align_cuts(texts, chars):
     對不上的地方（辨識錯字、簡體字）會跳過，只用對得上的字定位；
     句子邊界附近如果完全對不上，回傳 (None, 原因)。"""
     from difflib import SequenceMatcher
-    lines = [_norm(t) for t in texts]
-    exp = _sounds("".join(lines))
-    asr = _sounds("".join(c for c, _, _ in chars))  # 逐字轉換，長度不變
+    if LANG == "en":   # 英文以單字為單位；chars 本來就是一個單字一筆
+        lines = [_en_words(t) for t in texts]
+        exp = [w for line in lines for w in line]
+        asr = [c for c, _, _ in chars]
+    else:
+        lines = [_norm(t) for t in texts]
+        exp = _sounds("".join(lines))
+        asr = _sounds("".join(c for c, _, _ in chars))  # 逐字轉換，長度不變
     sm = SequenceMatcher(None, exp, asr, autojunk=False)
     mapping = {}
     for a, b, size in sm.get_matching_blocks():
@@ -609,7 +655,7 @@ def align_cuts(texts, chars):
 def _content_mismatch(n, heard_text, text):
     """切出來的第 n 句，辨識內容跟台詞差太多就回傳原因（多一截、少一截、錯位都會被抓到）。"""
     from difflib import SequenceMatcher
-    heard, want = _sounds(heard_text), _sounds(_norm(text))
+    heard, want = _units(heard_text), _units(text)
     same = sum(m.size for m in SequenceMatcher(None, want, heard, autojunk=False).get_matching_blocks())
     diff = max(len(want), len(heard)) - same   # 對不上的字數（錯字算一個）
     if diff > 2 + MAX_DIFF_RATIO * len(want):
@@ -627,7 +673,7 @@ def check_pieces(pieces, texts):
         for n, (piece, text) in enumerate(zip(pieces, texts), 1):
             if getattr(piece, "ear_checked", False):   # 使用者親耳聽過（cuts.txt 寫了「人耳確認」）
                 continue
-            heard = "".join(c for c, _, _ in transcribe_chars(getattr(piece, "speech_only", piece)))
+            heard = _heard(transcribe_chars(getattr(piece, "speech_only", piece)))
             if why := _content_mismatch(n, heard, text):
                 return why
     except ImportError:
@@ -678,7 +724,7 @@ def split_with_whisper(audio, texts):
         if b <= a:
             return None, f"第 {i // 2 + 1} 句切出來是空的"
         # 檢查：切出來這段裡辨識到的字，要跟這句台詞幾乎一樣（多一截、少一截都會被抓到）
-        heard_text = "".join(c for c, st, en in chars if a / rate <= (st + en) / 2 <= b / rate)
+        heard_text = _heard([ch for ch in chars if a / rate <= (ch[1] + ch[2]) / 2 <= b / rate])
         if why := _content_mismatch(i // 2 + 1, heard_text, texts[i // 2]):
             return None, why
         pieces.append(Audio(audio.pcm[a * 2:b * 2], rate))
@@ -1149,12 +1195,14 @@ def main():
         inspect_batches()
         return
 
+    set_lang(args.script)
     items, shared = expand_shared(parse_script(args.script))
     lines = [i for i in items if i[0] == "line"]
     pauses = sum(i[1] for i in items if i[0] == "pause")
     est = expected_seconds([i[3] for i in lines]) + pauses + LINE_GAP_SEC * len(lines)
     print(f"模型：{MODEL}")
-    print(f"{len(lines)} 句、{sum(len(TAG_RE.sub('', i[3])) for i in lines)} 字、停頓 {pauses:.0f} 秒，"
+    print(f"{'英文版，' if LANG == 'en' else ''}{len(lines)} 句、{sum(text_size(i[3]) for i in lines)} "
+          f"{'個單字' if LANG == 'en' else '字'}、停頓 {pauses:.0f} 秒，"
           f"預估長度約 {est / 60:.1f} 分鐘")
     for speaker in CHARACTERS:   # 只列這集有台詞的角色（CHARACTERS 裡也有其他系列的角色）
         if count := sum(1 for i in lines if i[1] == speaker):

@@ -49,7 +49,11 @@ class _Interactions:
         assert all(p["annotations"][0]["type"] == "speech_metadata" for p in parts)
         out = _sil(0.3)
         for k, p in enumerate(parts):
-            dur = max(len(_TAG.sub("", p["text"]).strip()), 1) / 3.0
+            text = _TAG.sub("", p["text"]).strip()
+            if text.isascii():   # 英文：每秒約 2.2 個單字
+                dur = max(len(text.split()), 1) / 2.2
+            else:                # 中文：每秒約 3 個字
+                dur = max(len(text), 1) / 3.0
             if mode == "long":
                 dur *= 4
             out += _tone(dur * 0.6) + _sil(0.2) + _tone(dur * 0.4)

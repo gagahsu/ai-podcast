@@ -38,6 +38,15 @@ py generate_episode.py episodes/ep01_moon.md             # 生成整集
 
 Claude 會寫好腳本、查核知識點、決定音效與背景、跑 dry-run，然後**停下來等你確認**才花額度生成音檔。流程細節在 `.claude/skills/new-episode/SKILL.md`。
 
+## 英文版（Why Forest）
+
+```
+/en-episode          # 下一集還沒有英文版的（從第 1 集開始）
+/en-episode 3        # 指定集數
+```
+
+Claude 會把中文腳本逐句翻成英文版 `episodes/en/epNN_xxx_en.md`（檔名 `_en` 結尾，程式會自動改用英文的共用片段和語音辨識），寫好全英文的節目說明和關鍵單字，跑 dry-run 後**停下來等你確認**；生成音檔後再到 `../forestreels` 做英文 Reel 和貼文文案。流程細節在 `.claude/skills/en-episode/SKILL.md`。
+
 ## 腳本格式
 
 ```markdown
