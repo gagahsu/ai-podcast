@@ -133,7 +133,7 @@ argument-hint: "[集數或集名，例如 1 或 ep01_moon；省略就做下一�
 一次列清楚，讓使用者可以直接上架、發文：
 
 - **Podcast**：`build/epNN_xxx_en.mp3`；標題 `[EN] Why Forest｜Episode N: …`；節目說明全文（全英文）；故事長度、全長。
-- **Reel**：`../forestreels/out/epNN_xxx_en.mp4`＋貼文文案全文。
+- **Reel**：`../forestreels/out/epNN_xxx_en.mp4`＋封面圖 `out/epNN_xxx_en_cover.png`＋貼文文案全文。
 - **週六單字貼文用的單字表**（已寫在腳本的製作備註）。
 - **建議發布日**：週二或週五（照集數順序排）。
 - **試聽清單**：同 `/new-episode` 第六步，再加上名字和關鍵單字出現的句子。

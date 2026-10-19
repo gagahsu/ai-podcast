@@ -140,7 +140,7 @@ argument-hint: "[題目（可省略，省略就自動選題）]"
 一次列清楚，讓使用者可以直接上架、發文：
 
 - **Podcast**：`build/epNN_xxx.mp3`；標題 `[CHT] 為什麼森林｜第 N 集：<問題>`；節目說明全文（故事長度、全長照實際生成結果補上）。
-- **Reel**：`../forestreels/out/epNN_xxx.mp4`＋貼文文案全文。
+- **Reel**：`../forestreels/out/epNN_xxx.mp4`＋封面圖 `out/epNN_xxx_cover.png`＋貼文文案全文。
 - **週三著色畫的生圖提示詞**（已寫在腳本的製作備註）：附上畫面說明，提醒生圖時附 `../forestreels/charaters.png` 當角色參考，存成 `../forestreels/public/coloring/epNN_xxx.png`。
 - **建議發布日**：週一或週四（照集數順序排）。
 - 英文版之後另外用 `/en-episode` 做（使用者選擇分開做：中文台詞定案後再翻）。
