@@ -161,6 +161,10 @@ Chinese version: [CHT] 為什麼森林｜第 1 集：為什麼月亮會跟著我
 Next episode: Do fish sleep?
 
 📷 Instagram: @whyforest.tw
+
+Subtitle: A bedtime science story in simple English: why the moon seems to follow us when we walk.
+Summary: Lili the little squirrel and her friend Mumu notice the moon following them home. Grandpa Gugu helps them find out why with a gentle "ten steps" game, then everyone drifts off to sleep. An 8-minute story for kids ages 3–6, followed by 10 minutes of calming nature sounds.
+Tags: bedtime story, kids podcast, sleep story, English for kids, simple English, science for kids, moon, why questions, preschool, Why Forest, 睡前故事, 兒童英文, 英文睡前故事, 親子共讀, 為什麼森林
 ```
 
 **關鍵單字（Key words）**

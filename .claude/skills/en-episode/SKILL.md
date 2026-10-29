@@ -86,6 +86,12 @@ argument-hint: "[集數或集名，例如 1 或 ep01_moon；省略就做下一�
    ```
    - ⏱ 那行的長度照實際生成結果補上（尾段的環境音照這集腳本實際用的寫）。
    - 「Chinese version」那行讓家長找得到對應的中文集（標題本身是中文，照抄）。
+   - 接著寫 SoundOn 上架另外要填的三欄（接在樣板後面，同一個區塊）。副標題、摘要全英文；Tags 後面 5 個中文詞給搜尋英文睡前故事的台灣家長（使用者 2026-10-20 確認）：
+     ```
+     Subtitle: A bedtime science story in simple English: <這集的問題，不說出答案>.
+     Summary: <2–3 句：故事簡介＋小實驗，不說出答案>. An N-minute story for kids ages 3–6, followed by 10 minutes of calming nature sounds.
+     Tags: bedtime story, kids podcast, sleep story, English for kids, simple English, science for kids, <這集主題 1–2 個字>, why questions, preschool, Why Forest, 睡前故事, 兒童英文, 英文睡前故事, 親子共讀, 為什麼森林
+     ```
 2. **關鍵單字（Key words）**：5–8 個，給週六的單字貼文用。格式固定（forestreels 的 `/weekly-posts` 會照這個表做圖卡）：
    ```markdown
    **關鍵單字（Key words）**
@@ -132,7 +138,7 @@ argument-hint: "[集數或集名，例如 1 或 ep01_moon；省略就做下一�
 
 一次列清楚，讓使用者可以直接上架、發文：
 
-- **Podcast**：`build/epNN_xxx_en.mp3`；標題 `[EN] Why Forest｜Episode N: …`；節目說明全文（全英文）；故事長度、全長。
+- **Podcast**：`build/epNN_xxx_en.mp3`；標題 `[EN] Why Forest｜Episode N: …`；節目說明全文（全英文）；SoundOn 的 Subtitle、Summary、Tags；故事長度、全長。
 - **Reel**：`../forestreels/out/epNN_xxx_en.mp4`＋封面圖 `out/epNN_xxx_en_cover.png`＋貼文文案全文。
 - **週六單字貼文用的單字表**（已寫在腳本的製作備註）。
 - **建議發布日**：週二或週五（照集數順序排）。
