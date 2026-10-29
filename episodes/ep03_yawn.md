@@ -175,3 +175,7 @@
 - 貓頭鷹（鳥類）也會打哈欠：魚、鳥、狗、貓等脊椎動物都會打哈欠（Cleveland Clinic、Science News Explores）。腳本沒有讓咕咕爺爺打哈欠以外的說法，咕咕爺爺示範打哈欠不違反事實。
 - 腳本沒有寫：胎兒在媽媽肚子裡約 12 週就會打哈欠、斑馬魚也會被傳哈欠。這些很有趣，但屬於「驚喜」，而且超出 3–6 歲睡前需要的範圍，可以放在節目說明延伸。
 - 2026-10-18 整季統一兩句樣板（見 `assets/SOURCES.md`）：結尾「晚安，為什麼森林。」換成 ep02 那次（旁白批次切點檔最後一行 `音效:晚安森林`，前面加 `[音量 -3dB]`，跟 ep02 一樣大聲），咕咕爺爺「晚安，栗栗。」換成 ep10 那次（咕咕爺爺批次切點檔最後一行 `音效:晚安栗栗`）。其他句子照原本的位置，`--offline` 重新輸出。
+
+**著色畫提示詞（Coloring page prompt）**
+畫面：栗栗和棉棉躺在大橡樹下的草地上，一起張大嘴巴打哈欠
+> Black and white coloring page for kids aged 3–6, clean thick black outlines, no shading, no gray, no filled black areas, pure white background, large simple shapes that are easy to color, cute storybook style. Portrait 4:5. A small squirrel with a big curly fluffy tail, pointed ears with little tufts, big round eyes, and a small fluffy bunny with long upright ears, round body, big round eyes, lying side by side on their backs on soft grass under a big oak tree, both stretching their arms and yawning with wide open mouths and sleepy half-closed eyes. The big oak tree has a round hollow in its trunk and a few large simple leaves. A few small flowers and grass around them, a crescent moon and a few small stars in the sky. Keep the characters large and the background simple. No text, no letters, no numbers anywhere. Use the attached character sheet as reference for the characters' look.

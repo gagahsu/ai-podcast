@@ -178,3 +178,7 @@
 - 「一閃一閃」：星星閃爍是因為星光穿過地球大氣時，被溫度、密度不同的空氣折射而變動（scintillation）。來源：Space.com〈Why do stars twinkle?〉https://www.space.com/why-do-stars-twinkle 。腳本只描述、不解釋；「對你輕輕地眨眼睛」是擬人比喻。
 - 「閉著眼睛的時候，星星也還在天上」：星星不會因為我們看不到就消失，跟白天看不到星星是同一個道理，屬事實陳述。
 - 2026-10-18 整季統一兩句樣板（見 `assets/SOURCES.md`）：結尾「晚安，為什麼森林。」換成 ep02 那次（旁白批次切點檔最後一行 `音效:晚安森林`，前面加 `[音量 -3dB]`，跟 ep02 一樣大聲），咕咕爺爺「晚安，栗栗。」換成 ep10 那次（咕咕爺爺批次切點檔最後一行 `音效:晚安栗栗`）。原本咕咕爺爺這句前面有約 1 秒的嘆氣，換掉後就沒有了。其他句子照原本的位置，`--offline` 重新輸出。
+
+**著色畫提示詞（Coloring page prompt）**
+畫面：栗栗和棉棉躺在大橡樹旁的小山坡上，看滿天的星星；山下有一間亮著窗的小屋
+> Black and white coloring page for kids aged 3–6, clean thick black outlines, no shading, no gray, no filled black areas, pure white background, large simple shapes that are easy to color, cute storybook style. Portrait 4:5. A small squirrel with a big curly fluffy tail, pointed ears with little tufts, big round eyes, smiling, and a small fluffy bunny with long upright ears, round body, big round eyes, lying side by side on the grass of a gentle little hill, looking up at the sky full of stars. The sky is left white (not black), with many simple outlined five-pointed stars of different sizes, big enough to color. A big oak tree at one side of the hill, and far down the hill one tiny cottage with a small square window. Some grass and a few small flowers on the hill. Keep the characters large and the background simple. No text, no letters, no numbers anywhere. Use the attached character sheet as reference for the characters' look.
